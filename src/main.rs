@@ -1,5 +1,4 @@
 use futures_util::{StreamExt, SinkExt};
-use tokio::time::{Duration, sleep};
 use tokio::io::{AsyncReadExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tungstenite::handshake::client::generate_key;
@@ -13,6 +12,7 @@ use std::collections::hash_map::HashMap;
 extern crate clap;
 use clap::{arg,command,Command};
 mod data;
+mod clispam;
 
 macro_rules! send{
     ($writer: expr, $value: expr) => {
@@ -173,32 +173,7 @@ async fn main() {
                     )
                     .get_matches();
 
-    match matches.subcommand() {
-        Some(("auto", _sub_matches)) => {
-            println!("AUTO");
-        }
-        Some(("x11", _sub_matches)) => {
-            println!("X11");
-        }
-        Some(("wlroots", _sub_matches)) => {
-            println!("wlroots");
-        }
-        Some(("clispam", _sub_matches)) => {
-            println!("clispam");
-        }
-        Some(("rpc", _sub_matches)) => {
-            println!("rpc");
-        }
-        Some(("statefile", _sub_matches)) => {
-            println!("statefile");
-        }
-        Some((&_, _)) => {
-            println!("What is happening?");
-        }
-        None => {
-            println!("uhoh");
-        }
-    }
+
                     
     let req = Request::builder()
        .uri("ws://127.0.0.1:6463/?v=1&client_id=207646673902501888")
@@ -217,7 +192,6 @@ async fn main() {
     tokio::spawn(read_stdin(stdin_tx));
 
     let (ws_stream, _) = connect_async(req).await.expect("Failed to connect");
-    println!("WebSocket handshake has been successfully completed");
 
     let (write, read) = ws_stream.split();
 
@@ -231,32 +205,51 @@ async fn main() {
 
     let writer = Arc::new(Mutex::new(write));
     let state = Arc::new(Mutex::new(state));
-    let gui_state = state.clone();
+    let mut exit_on_disconnect = true;
+    let mut debug_stdout = false;
 
-    // GUI loop
-    let _gui_loop = tokio::task::spawn(async move {
-        loop {
-            // Fake GUI. Output state to TERM
-            let state = gui_state.lock().unwrap().clone();
-            println!("TICK");
-            println!("User ID : {:?}",state.user_id);
-            println!("Voice Channel : {:?}", state.voice_channel);
-            for key in state.voice_states.keys() {
-                let vs = state.voice_states.get(key).unwrap().clone();
-                let user = state.users.get(key).unwrap().clone();
-
-                println!("{} : Mute({}) Deaf({:}) Talking({})", 
-                    match vs.nick { Some(val) => val, None => user.username},
-                    vs.mute || vs.self_mute,
-                    vs.deaf || vs.self_deaf,
-                    vs.talking);
-            }
-            sleep(Duration::from_millis(1000)).await;
+    match matches.subcommand() {
+        Some(("auto", _sub_matches)) => {
+            println!("Auto: Not yet implemented");
+            std::process::exit(0);
         }
-    });
+        Some(("x11", _sub_matches)) => {
+            //exit_on_disconnect = false;
 
+            println!("X11: Not yet implemented");
+            std::process::exit(0);
+        }
+        Some(("wlroots", _sub_matches)) => {
+            //exit_on_disconnect = false;
 
-    let ws_to_stdout = {
+            println!("WLRoots: Not yet implemented");
+            std::process::exit(0);
+        }
+        Some(("clispam", _sub_matches)) => {
+            exit_on_disconnect = false;
+            debug_stdout = true;
+            clispam::start(state.clone());
+        }
+        Some(("rpc", _sub_matches)) => {
+            println!("Rpc: Not yet implemented");
+            std::process::exit(0);
+        }
+        Some(("statefile", _sub_matches)) => {
+            //exit_on_disconnect = false;
+
+            println!("StateFile: Not yet implemented");
+            std::process::exit(0);
+        }
+        Some((&_, _)) => {
+            println!("Other: Not yet implemented");
+            std::process::exit(0);
+        }
+        None => {
+
+        }
+    }
+
+    let websocket_loop = {
         read.for_each(|message| async {
             let message = message.unwrap();
             let writer = writer.clone();
@@ -266,9 +259,6 @@ async fn main() {
 
                     match data["cmd"].as_str().unwrap(){
                         "AUTHORIZE" => {
-                            println!( "AUTH Stage 1");
-                            println!( "{:?}",data["data"]["code"]);
-
                             // Make HTTPS request to auth user
                             let url = "https://streamkit.discord.com/overlay/token";
                             let obj = json!({"code": data["data"]["code"]});
@@ -280,36 +270,43 @@ async fn main() {
                               .unwrap()
                               .json()
                               .await.unwrap();
-                            println!("{:?}", resp);
                             match resp.get("access_token") {
                                 Some(value) => {
                                     send_auth2!(writer, value);
                                 }
                                 None => {
-                                    println!("Access token missing in response");
-                                    println!("{:?}",resp);
+                                    if debug_stdout {
+                                        println!("No access token, failed to connect")
+                                    }
+                                    if exit_on_disconnect {
+                                        std::process::exit(0);
+                                    }
+                                    // TODO Reattempt connect
                                 }
                             }
                         }
                         "AUTHENTICATE" => {
-                            println!("AUTH Stage 2");
                             match data["data"].get("access_token") {
                                 None => {
-                                    println!("Not authorized");
-                                    println!("{:?}",data);
+                                    if debug_stdout { 
+                                        println!("Not authorized");
+                                        println!("{:?}",data);
+                                    }
+                                    
+                                    if exit_on_disconnect {
+                                        std::process::exit(0);
+                                    }
+                                    // TODO Reattempt connection
                                 }
                                 Some(_value) => {
                                     send_req_all_guilds!(writer);
                                     send_req_selected_voice!(writer);
                                     send_sub_server!(writer);
-                                    println!("{:?}",data);
                                     match data["data"]["user"]["id"].as_str(){
                                         Some(value) => {
-                                            println!("User ID");
                                             state.lock().unwrap().user_id = Some(value.to_string());
                                         }
                                         None => {
-                                            println!("No user logged in");
                                             state.lock().unwrap().user_id = None;
                                         }
                                     }
@@ -325,7 +322,6 @@ async fn main() {
                             match data["data"].get("id") {
                                 Some(value) => {
                                     state.lock().unwrap().voice_channel = Some(value.as_str().unwrap().parse().unwrap());
-                                    println!("Found user in channel");
                                     update_state_from_voice_state_list(state.clone(), &data["data"]["voice_states"]).await;
                                     send_sub_voice_channel!(writer, value.as_str().unwrap());
                                 }
@@ -337,7 +333,6 @@ async fn main() {
                         "DISPATCH" => {
                             match data["evt"].as_str().unwrap() {
                                 "READY" => {
-                                    println!("Connection started");
                                     send_auth!(writer, "207646673902501888");
                                 }
                                 "SPEAKING_START" => {
@@ -346,14 +341,10 @@ async fn main() {
                                         send_req_selected_voice!(writer);
                                     }
                                     set_user_talking(state.clone(), id, true).await;
-                                    println!("{:?}",data);
-
                                 }
                                 "SPEAKING_STOP" => {
                                     let id = data["data"]["user_id"].as_str().unwrap().to_string().clone();
                                     set_user_talking(state.clone(), id, false).await;
-                                    println!("{:?}",data);
-
                                 }
                                 "VOICE_STATE_DELETE" => {
                                     println!("{:?}",data);
@@ -368,11 +359,9 @@ async fn main() {
                                     if state.lock().unwrap().voice_channel.is_none() {
                                         send_req_selected_voice!(writer);
                                     }
-                                    println!("{:?}",data);
                                 }
                                 "VOICE_STATE_UPDATE" => {
                                     let _id = data["data"]["user"]["id"].clone();
-                                    println!("{:?}",data);
                                     update_state_from_voice_state(state.clone(), &data["data"]).await;
                                 }
                                 "VOICE_CHANNEL_SELECT" => {
@@ -381,39 +370,42 @@ async fn main() {
                                     // Let's ask for more info
                                 }
                                 "VOICE_CONNECTION_STATUS" => {
-                                    println!("{}: {}", data["evt"], data["data"]["state"]);
+                                    if debug_stdout{
+                                        println!("{}: {}", data["evt"], data["data"]["state"]);
+                                    }
                                 }
                                 _ => {
-                                    println!("{:?}",data);
+                                    if debug_stdout{
+                                        println!("{:?}",data);
+                                    }
                                 }
                             }
 
                         }
                         _ => {
-                            println!("{:?}",data);
+                            if debug_stdout {
+                                println!("{:?}",data);
+                            }
                         }
                     }
                 }
                 tungstenite::Message::Binary(_raw_data) => {
-                    println!("Binary recv");
                 }
                 tungstenite::Message::Ping(_raw_data) => {
-                    println!("Ping recv");
                 }
                 tungstenite::Message::Pong(_raw_data) => {
-                    println!("Pong recv");
                 }
                 tungstenite::Message::Frame(_raw_data)=>{
-                    println!("Frame recv");
                 }
                 tungstenite::Message::Close(_raw_data)=>{
-                    println!("Close recv");
+                    if exit_on_disconnect {
+                        std::process::exit(0);
+                    }
                 }
             }
         })
     };
-    println!("Starting\n");
-    ws_to_stdout.await;
+    websocket_loop.await;
 }
 
 async fn user_left_channel(state:  Arc<Mutex<data::ConnState>>){
@@ -427,7 +419,6 @@ async fn set_user_talking(state:  Arc<Mutex<data::ConnState>>, user_id: String, 
     let mut unlocked = state.lock().unwrap();
     let mut voice_state = unlocked.voice_states.get_mut(&user_id).unwrap().clone();
     voice_state.talking = talking;
-    println!("{}", talking);
     unlocked.voice_states.insert(user_id.clone(),voice_state);
 }
 
@@ -437,9 +428,7 @@ async fn update_state_from_voice_state (state : Arc<Mutex<data::ConnState>>, voi
 
     let username = voice_state["user"]["username"].as_str().unwrap().to_string();
     let avatar = voice_state["user"]["avatar"].as_str().unwrap().to_string();
-    println!("{} {}", user_id, username);
 
-    println!( "Inserting user");
     let user = data::DiscordUserData{
         avatar: avatar,
         id: user_id.clone(),
