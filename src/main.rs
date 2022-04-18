@@ -1,6 +1,6 @@
 use futures_util::{StreamExt, SinkExt};
 use tokio::time::{Duration, sleep};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tungstenite::handshake::client::generate_key;
 use http::{Request};
@@ -10,35 +10,9 @@ use serde_json::json;
 use std::sync::{Arc, Mutex};
 use std::vec::Vec;
 use std::collections::hash_map::HashMap;
-use std::io;
-use std::fmt::Display;
-
-#[derive(Debug,  Clone)]
-struct DiscordUserData {
-    avatar: String,
-    id: String,
-    username: String
-}
-
-#[derive(Debug,  Clone)]
-struct VoiceStateData {
-    mute: bool,
-    self_mute: bool,
-    deaf: bool,
-    self_deaf: bool,
-    suppress: bool,
-    nick: Option<String>,
-    talking: bool
-}
-
-#[derive(Debug, Clone)]
-pub struct ConnState {
-    user_id: Option<String>,
-    voice_channel: Option<String>,
-    users: HashMap<String, DiscordUserData>,
-    voice_states: HashMap<String, VoiceStateData>,
-    errors: Vec<String>,
-}
+extern crate clap;
+use clap::{arg,command,Command};
+mod data;
 
 macro_rules! send{
     ($writer: expr, $value: expr) => {
@@ -131,7 +105,101 @@ macro_rules! send_sub_voice_channel{
 
 #[tokio::main]
 async fn main() {
+    let matches = command!()
+                    .subcommand_required(true)
+                    .subcommand(
+                        Command::new("auto")
+                            .about("Autodetect mode based on ENV variables"))
+                    .subcommand(
+                        Command::new("x11")
+                            .about("Create an overlay window with x11"))
+                    .subcommand(
+                        Command::new("wlroots")
+                            .about("Create an overlay window with wlroots layer_shell"))
+                    .subcommand(
+                        Command::new("clispam")
+                            .about("Output to stdout. A lot"))
+                    .subcommand(
+                        Command::new("rpc")
+                            .about("Poll data from Discord, await and answer, and reply on stdout")
+                            .subcommand(
+                                Command::new("channel")
+                                .about("Get current channel information")
+                                .subcommand(
+                                    Command::new("id")
+                                    .about("Get Room ID. None is 0")
+                                )
+                                .subcommand(
+                                    Command::new("name")
+                                    .about("Get Room Name")
+                                )
+                                .subcommand(
+                                    Command::new("useridlist")
+                                    .about("Get List of users in room, return IDs")
+                                )
+                                .subcommand(
+                                    Command::new("usernamelist")
+                                    .about("Get List of users in room, return names")
+                                )
+                                .subcommand(
+                                    Command::new("move")
+                                    .about("Switch to another roomm by ID")
+                                    .arg(arg!([ID] "ID of room to move user to"))
+                                )
+                            )
+                            .subcommand(
+                                Command::new("devices")
+                                .about("Get audio device information")
+                                .subcommand(
+                                    Command::new("mute")
+                                    .about("Check mute state of user")
+                                    .arg(arg!(-s --set <VALUE> "Alter mute state. `true` `false` or `toggle`"))
+                                )
+                                .subcommand(
+                                    Command::new("deaf")
+                                    .about("Check deaf state of user")
+                                    .arg(arg!(-s --set <VALUE> "Alter deaf state. `true` `false` or `toggle`"))
+                                )
+                            )
+                        )
+                    .subcommand(
+                        Command::new("statefile")
+                            .about("Write state into a file every time it changes.")
+                            .arg(arg!(-f --file <FILE> "The location of the file to write to. Defaults to ~/.discern-state").allow_invalid_utf8(true))
+                    )
+                    .subcommand(
+                        Command::new("gamescope")
+                            .about("Create an overlay in gamescope. Reads changes in ~/.discern.control")
+                    )
+                    .get_matches();
 
+    match matches.subcommand() {
+        Some(("auto", _sub_matches)) => {
+            println!("AUTO");
+        }
+        Some(("x11", _sub_matches)) => {
+            println!("X11");
+        }
+        Some(("wlroots", _sub_matches)) => {
+            println!("wlroots");
+        }
+        Some(("clispam", _sub_matches)) => {
+            println!("clispam");
+        }
+        Some(("rpc", _sub_matches)) => {
+            println!("rpc");
+        }
+        Some(("statefile", _sub_matches)) => {
+            println!("statefile");
+        }
+        Some((&_, _)) => {
+            println!("What is happening?");
+        }
+        None => {
+            println!("uhoh");
+        }
+    }
+                    
     let req = Request::builder()
        .uri("ws://127.0.0.1:6463/?v=1&client_id=207646673902501888")
        .method("GET")
@@ -153,7 +221,7 @@ async fn main() {
 
     let (write, read) = ws_stream.split();
 
-    let state = ConnState{
+    let state = data::ConnState{
         user_id : None,
         voice_channel: None,
         users : HashMap::new(),
@@ -166,7 +234,7 @@ async fn main() {
     let gui_state = state.clone();
 
     // GUI loop
-    let gui_loop = tokio::task::spawn(async move {
+    let _gui_loop = tokio::task::spawn(async move {
         loop {
             // Fake GUI. Output state to TERM
             let state = gui_state.lock().unwrap().clone();
@@ -296,14 +364,14 @@ async fn main() {
                                     }
                                 }
                                 "VOICE_STATE_CREATE" => {
-                                    let id = data["data"]["user"]["id"].clone();
+                                    let _id = data["data"]["user"]["id"].clone();
                                     if state.lock().unwrap().voice_channel.is_none() {
                                         send_req_selected_voice!(writer);
                                     }
                                     println!("{:?}",data);
                                 }
                                 "VOICE_STATE_UPDATE" => {
-                                    let id = data["data"]["user"]["id"].clone();
+                                    let _id = data["data"]["user"]["id"].clone();
                                     println!("{:?}",data);
                                     update_state_from_voice_state(state.clone(), &data["data"]).await;
                                 }
@@ -311,6 +379,9 @@ async fn main() {
                                     // User has manually chosen to join a room
                                     send_req_selected_voice!(writer);
                                     // Let's ask for more info
+                                }
+                                "VOICE_CONNECTION_STATUS" => {
+                                    println!("{}: {}", data["evt"], data["data"]["state"]);
                                 }
                                 _ => {
                                     println!("{:?}",data);
@@ -345,14 +416,14 @@ async fn main() {
     ws_to_stdout.await;
 }
 
-async fn user_left_channel(state:  Arc<Mutex<ConnState>>){
+async fn user_left_channel(state:  Arc<Mutex<data::ConnState>>){
     let mut current_state = state.lock().unwrap();
     current_state.voice_channel = None;
     current_state.users.clear();
     current_state.voice_states.clear();
 }
 
-async fn set_user_talking(state:  Arc<Mutex<ConnState>>, user_id: String, talking: bool){
+async fn set_user_talking(state:  Arc<Mutex<data::ConnState>>, user_id: String, talking: bool){
     let mut unlocked = state.lock().unwrap();
     let mut voice_state = unlocked.voice_states.get_mut(&user_id).unwrap().clone();
     voice_state.talking = talking;
@@ -360,7 +431,7 @@ async fn set_user_talking(state:  Arc<Mutex<ConnState>>, user_id: String, talkin
     unlocked.voice_states.insert(user_id.clone(),voice_state);
 }
 
-async fn update_state_from_voice_state (state : Arc<Mutex<ConnState>>, voice_state: &Value){
+async fn update_state_from_voice_state (state : Arc<Mutex<data::ConnState>>, voice_state: &Value){
     let user_id : String  = voice_state["user"]["id"].as_str().unwrap().to_string();
     let mut current_state = state.lock().unwrap();
 
@@ -369,7 +440,7 @@ async fn update_state_from_voice_state (state : Arc<Mutex<ConnState>>, voice_sta
     println!("{} {}", user_id, username);
 
     println!( "Inserting user");
-    let user = DiscordUserData{
+    let user = data::DiscordUserData{
         avatar: avatar,
         id: user_id.clone(),
         username: username
@@ -395,20 +466,20 @@ async fn update_state_from_voice_state (state : Arc<Mutex<ConnState>>, voice_sta
     if current_state.voice_states.contains_key(&user_id.clone()) {
         talking = current_state.voice_states.get(&user_id.clone()).unwrap().talking;
     }
-    let vs = VoiceStateData{
+    let vs = data::VoiceStateData{
         mute: voice_state["voice_state"]["mute"].as_bool().unwrap(),
         deaf: voice_state["voice_state"]["deaf"].as_bool().unwrap(),
         self_mute: voice_state["voice_state"]["self_mute"].as_bool().unwrap(),
         self_deaf: voice_state["voice_state"]["self_deaf"].as_bool().unwrap(),
         suppress: voice_state["voice_state"]["suppress"].as_bool().unwrap(),
         nick: nick,
-        talking: false,
+        talking: talking,
     };
     current_state.voice_states.insert(user_id, vs);
     
 }
 
-async fn update_state_from_voice_state_list (state: Arc<Mutex<ConnState>>, voice_state_list: &Value) {
+async fn update_state_from_voice_state_list (state: Arc<Mutex<data::ConnState>>, voice_state_list: &Value) {
     for voice_state in voice_state_list.as_array().unwrap() {
         update_state_from_voice_state(state.clone(), voice_state).await;
     }
