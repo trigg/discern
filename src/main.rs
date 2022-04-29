@@ -57,7 +57,7 @@ async fn main() {
                                 )
                                 .subcommand(
                                     Command::new("move")
-                                    .about("Switch to another roomm by ID")
+                                    .about("Switch to another room by ID")
                                     .arg(arg!([ID] "ID of room to move user to"))
                                 )
                             )
