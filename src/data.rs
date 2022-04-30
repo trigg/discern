@@ -36,6 +36,7 @@ impl ConnState {
         }
     }
 
+    // Replace own contents with contents of 'new'
     pub fn replace_self(&mut self, new: ConnState) {
         self.user_id = new.user_id.clone();
         self.voice_channel = new.voice_channel.clone();

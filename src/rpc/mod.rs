@@ -24,6 +24,8 @@ pub fn start(
             std::process::exit(1);
         }
     });
+
+    // Types to store what the user requested action was
     #[derive(Debug, Clone)]
     enum AudioAction {
         True,
@@ -50,7 +52,7 @@ pub fn start(
         mute: None,
         deaf: None,
     };
-
+    // Decant the args into the store above
     match matches.subcommand() {
         Some(("channel", sub)) => match sub.subcommand() {
             Some(("id", _)) => user_args.get_room_id = true,
@@ -109,9 +111,12 @@ pub fn start(
         }
     }
     let writer = writer.clone();
-    let user_args = user_args;
 
+    // Return a function to be called every time we receive a new packet
+    // Due to the simplicity of passing a String over a JSON Value it needs to
+    // be decoded a 2nd time. Not great.
     move |value| {
+        // clone all data and spawn an async task
         let value = value.clone();
         let writer = writer.clone();
         let user_args = user_args.clone();
@@ -120,10 +125,12 @@ pub fn start(
             let data: Value = serde_json::from_str(&value).unwrap();
             match data["cmd"].as_str() {
                 Some("SELECT_VOICE_CHANNEL") => {
+                    // Successfully Selected a channel. Exit!
                     std::process::exit(0);
                 }
                 Some("GET_SELECTED_VOICE_CHANNEL") => {
                     if user_args.get_room_id {
+                        // Print out the channel ID and exit!
                         match data["data"]["id"].as_str() {
                             Some(val) => {
                                 println!("{}", val);
@@ -135,6 +142,7 @@ pub fn start(
                         std::process::exit(0);
                     }
                     if user_args.get_room_name {
+                        // Print out the channel name and exit!
                         match data["data"]["name"].as_str() {
                             Some(val) => {
                                 println!("{}", val);
@@ -146,6 +154,7 @@ pub fn start(
                         std::process::exit(0);
                     }
                     if user_args.get_room_idlist {
+                        // Print out the user id list and exit!
                         match data["data"]["voice_states"].as_array() {
                             Some(array) => {
                                 for user in array {
@@ -157,6 +166,7 @@ pub fn start(
                         std::process::exit(0);
                     }
                     if user_args.get_room_userlist {
+                        // Print out the user name list and exit!
                         match data["data"]["voice_states"].as_array() {
                             Some(array) => {
                                 for user in array {
@@ -169,9 +179,13 @@ pub fn start(
                     }
                 }
                 Some("SET_VOICE_SETTINGS") => {
+                    // Successfully set voice settings. Exit!
                     std::process::exit(0);
                 }
                 Some("GET_VOICE_SETTINGS") => {
+                    // Got current voice settings.
+                    // if we're polling this, return and exit!
+                    // if we're toggling, pass it back inverted
                     match user_args.mute.clone() {
                         Some(AudioAction::True) => {}
                         Some(AudioAction::False) => {}

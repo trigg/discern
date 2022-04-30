@@ -13,7 +13,8 @@ use bytes::Bytes;
 use std::io::Cursor;
 
 pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
-    let (event_sender, event_recv) = futures::channel::mpsc::channel(0); // Pipe to send notification that state has changed
+    // Pipe to send notification that state has changed
+    let (event_sender, event_recv) = futures::channel::mpsc::channel(0); 
     let event_sender = Arc::new(std::sync::Mutex::new(event_sender));
     let event_recv = Arc::new(std::sync::Mutex::new(event_recv));
 
@@ -64,8 +65,9 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
         });
     }
 
+    // Thread with everything glib.
     let _gui_loop = tokio::task::spawn(async move {
-        // avatar surfaces
+        // ImageSurfaces per user ID.
         let avatar_list : HashMap<String, Option<ImageSurface>> = HashMap::new();
         let avatar_list = Arc::new(std::sync::Mutex::new(avatar_list));
 
@@ -239,6 +241,8 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
     });
 
     let event_sender = event_sender.clone();
+    // Return a function to be called every time we receive a new packet
+    // In our case we try send it across the pipe into glib loop
     move |value: String| match event_sender.lock().unwrap().try_send(value) {
         Ok(_) => {}
         Err(_e) => {

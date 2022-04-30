@@ -21,6 +21,7 @@ mod x11;
 
 #[tokio::main]
 async fn main() {
+    // Setup Command line args
     let matches = command!()
                     .subcommand_required(true)
                     .subcommand(
@@ -89,6 +90,7 @@ async fn main() {
                     )
                     .get_matches();
 
+    // Start websocket connection to locally running Discord client
     let req = Request::builder()
         .uri("ws://127.0.0.1:6463/?v=1&client_id=207646673902501888")
         .method("GET")
@@ -105,6 +107,7 @@ async fn main() {
 
     let (write, read) = ws_stream.split();
 
+    // Create our global scope. Everyone who needs it gets an Arc<Mutex<ConnState>> which can be cloned and unlocked again for easy read or mutated in place
     let state = data::ConnState {
         user_id: None,
         voice_channel: None,
@@ -112,23 +115,25 @@ async fn main() {
         voice_states: HashMap::new(),
     };
 
+    // writer allows us to send packets to local Discord client
     let writer = Arc::new(Mutex::new(write));
     let state = Arc::new(Mutex::new(state));
     let mut exit_on_disconnect = true;
+    // In RPC mode we do not want passing debug info in case someone is writing a script around expected values
     let mut debug_stdout = false;
 
+    // Every time we receive a packet from local Discord Client, call this fn
     let mut callback: Arc<dyn Fn(String)> = Arc::new(|_string| {});
 
     match matches.subcommand() {
         Some(("auto", _sub_matches)) => {
-            println!("Auto: Not yet implemented");
+            // Try to guess what to do based on ENV variables
             let wayland_env = env::var("WAYLAND_DISPLAY");
             let x11_env = env::var("DISPLAY");
             let gamescope_env = env::var("GAMESCOPE_WAYLAND_DISPLAY");
             if gamescope_env.is_ok(){
                 println!("Gamescope: Not yet implemented");
                 std::process::exit(0);
-
             }else if wayland_env.is_ok(){
                 exit_on_disconnect = false;
                 callback = Arc::new(wlroots::start(state.clone()));
@@ -172,6 +177,8 @@ async fn main() {
         }
         None => {}
     }
+
+    // Basic client for connecting to local Discord client
     let websocket_loop = {
         read.for_each(|message| async {
             let message = message.unwrap();
@@ -179,6 +186,7 @@ async fn main() {
             match message {
                 tungstenite::Message::Text(raw_data) => {
                     let data: Value = serde_json::from_str(&raw_data).unwrap();
+                    // Data is a raw JSON object
                     match data["cmd"].as_str().unwrap() {
                         "AUTHORIZE" => {
                             // Make HTTPS request to auth user

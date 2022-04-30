@@ -1,3 +1,4 @@
+// Send raw value over websocket
 macro_rules! send {
     ($writer: expr, $value: expr) => {
         $writer
@@ -9,6 +10,7 @@ macro_rules! send {
     };
 }
 
+// First packet to send. Explains what scopes the app will need
 macro_rules! send_auth{
     ($writer: expr, $auth_code: expr) => {
         send!($writer, json!({
@@ -23,6 +25,7 @@ macro_rules! send_auth{
     }
 }
 
+// Second, with an access token to authenticate the app
 macro_rules! send_auth2{
     ($writer: expr, $token: expr) => {
         send!($writer, json!({
@@ -35,6 +38,7 @@ macro_rules! send_auth2{
     }
 }
 
+// Request a list of all guilds the user is in
 macro_rules! send_req_all_guilds{
     {$writer: expr} => {
         send!($writer, json!({
@@ -46,6 +50,7 @@ macro_rules! send_req_all_guilds{
     }
 }
 
+// Request information on the channel the user is currently in
 macro_rules! send_req_selected_voice{
     {$writer: expr} => {
         send!($writer, json!({
@@ -57,6 +62,7 @@ macro_rules! send_req_selected_voice{
     }
 }
 
+// Subscribe to event callbacks
 macro_rules! send_sub{
     {$writer: expr, $event: expr, $args: expr, $nonce: expr} =>{
         send!($writer, json!({
@@ -68,6 +74,7 @@ macro_rules! send_sub{
     }
 }
 
+// Subscribe to server events
 macro_rules! send_sub_server{
     {$writer: expr} => {
         send_sub!($writer.clone(), "VOICE_CHANNEL_SELECT", json!({}), "VOICE_CHANNEL_SELECT");
@@ -75,12 +82,14 @@ macro_rules! send_sub_server{
     }
 }
 
+// Subscribe to a channel event
 macro_rules! send_sub_channel{
     {$writer: expr, $event: expr, $channel: expr} => {
         send_sub!($writer, $event, json!({"channel_id":$channel}), $channel);
     }
 }
 
+// Subscribe to voice channel events
 macro_rules! send_sub_voice_channel{
     {$writer: expr, $channel: expr} => {
         send_sub_channel!($writer.clone(), "VOICE_STATE_CREATE", $channel);
@@ -91,6 +100,7 @@ macro_rules! send_sub_voice_channel{
     }
 }
 
+// Request information about audio devices
 macro_rules! send_req_devices{
     {$writer: expr} =>{
         send!($writer, json!({
@@ -101,6 +111,7 @@ macro_rules! send_req_devices{
     }
 }
 
+// Request we move the user into the channel with the given ID
 macro_rules! send_set_channel{
     {$writer:expr, $channel: expr} => {
         send!($writer, json!({
@@ -115,6 +126,7 @@ macro_rules! send_set_channel{
     }
 }
 
+// Request we change the users device setting (mute, deaf etc)
 macro_rules! send_set_devices{
     {$writer: expr, $dev: expr, $value: expr, $nonce: expr} =>{
         send!($writer, json!({
@@ -125,8 +137,7 @@ macro_rules! send_set_devices{
     }
 }
 
-// Cairo helpers
- 
+// Cairo helper
 macro_rules! draw_overlay{
     {$window: expr, $ctx: expr, $avatar_list:expr, $avatar_list_raw:expr, $state: expr} => {
         let reg = Region::create();
