@@ -110,3 +110,93 @@ macro_rules! send_set_devices{
         }));
     }
 }
+
+// Cairo helpers
+ 
+macro_rules! draw_overlay{
+    {$window: expr, $ctx: expr, $state: expr} => {
+        let reg = Region::create();
+        reg.union_rectangle(& RectangleInt{
+            x: 0,
+            y: 0,
+            width:1,
+            height:1
+        }).expect("Failed to add rectangle"); 
+        // Config / Static
+        let edge = 6.0;
+        let line_height = 32.0;
+
+        $ctx.set_antialias(Antialias::Good);
+        $ctx.set_operator(Operator::Source);
+        $ctx.set_source_rgba(1.0, 0.0, 0.0, 0.0);
+        $ctx.paint().expect("Unable to paint window");
+
+        $ctx.select_font_face("Sans", FontSlant::Normal, FontWeight::Normal);
+        $ctx.set_font_size(16.0);
+        let state = $state.lock().unwrap().clone();
+        let mut y = 50.0;
+        $ctx.set_operator(Operator::Over);
+
+        if state.users.len() > 0 {
+            for (key, user) in state.users {
+                match state.voice_states.get(&key) {
+                    Some(voice_state) => {
+                        let mut name = user.username.clone();
+                        match &voice_state.nick {
+                            Some(nick) => {
+                                name = nick.clone();
+                            }
+                            None => {}
+                        }
+                        if voice_state.talking {
+                            $ctx.set_source_rgba(0.0, 0.4, 0.0, 0.6);
+                        } else {
+                            $ctx.set_source_rgba(0.0, 0.0, 0.0, 0.4);
+                        }
+                        let ext = $ctx.text_extents(&name).unwrap();
+                        // Draw border around text
+                        $ctx.rectangle(
+                            line_height,
+                            y + (line_height / 2.0) - (ext.height / 2.0) - edge,
+                            ext.width + edge * 2.0,
+                            ext.height + edge * 2.0,
+                        );
+                        $ctx.fill().expect("Unable to fill");
+                        $ctx.move_to(
+                            line_height + edge,
+                            y + (line_height / 2.0) + (ext.height / 2.0),
+                        );
+                        // Draw border into XShape
+                        reg.union_rectangle(& RectangleInt{
+                            x:line_height as i32 ,
+                            y:(y + (line_height / 2.0) - (ext.height / 2.0) - edge) as i32,
+                            width: (ext.width + edge * 2.0) as i32,
+                            height: (ext.height + edge * 2.0) as i32
+                        }).expect("Unable to add rectangle to XShape");
+                        reg.union_rectangle(& RectangleInt{
+                            x:0,
+                            y:y as i32 ,
+                            width:line_height as i32,
+                            height:line_height as i32
+                        }).expect("Unable to add rectangle to XShape");
+
+                        if voice_state.talking {
+                            $ctx.set_source_rgba(0.0, 1.0, 0.0, 1.0);
+                        } else {
+                            $ctx.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+                        }
+                        $ctx.show_text(&name).expect("unable to draw text");
+                        if voice_state.deaf || voice_state.self_deaf {
+                            draw_deaf($ctx, 0.0, y, line_height);
+                        } else if voice_state.mute || voice_state.self_mute {
+                            draw_mute($ctx, 0.0, y, line_height);
+                        }
+                    }
+                    None => {}
+                }
+                y += line_height;
+            }
+        }
+        $window.shape_combine_region(Some(&reg));
+    }
+}

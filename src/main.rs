@@ -16,6 +16,7 @@ mod data;
 mod macros;
 mod rpc;
 mod wlroots;
+mod x11;
 
 #[tokio::main]
 async fn main() {
@@ -123,10 +124,8 @@ async fn main() {
             std::process::exit(0);
         }
         Some(("x11", _sub_matches)) => {
-            //exit_on_disconnect = false;
-
-            println!("X11: Not yet implemented");
-            std::process::exit(0);
+            exit_on_disconnect = false;
+            callback = Arc::new(x11::start(state.clone()));
         }
         Some(("wlroots", _sub_matches)) => {
             exit_on_disconnect = false;

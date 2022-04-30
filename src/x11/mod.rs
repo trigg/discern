@@ -5,7 +5,6 @@ use gio::prelude::*;
 use glib;
 use gtk::cairo::{RectangleInt, Antialias, Context, FillRule, FontSlant, FontWeight, Operator, Region};
 use gtk::prelude::*;
-use gtk_layer_shell;
 use std::f64::consts::PI;
 use std::sync::Arc;
 
@@ -15,6 +14,7 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
     let event_recv = Arc::new(std::sync::Mutex::new(event_recv));
     let state = Arc::new(std::sync::Mutex::new(ConnState::new())); // 'local' mutex copy, not shared with main
     let _gui_loop = tokio::task::spawn(async move {
+
 
         fn draw_deaf(ctx: &Context, pos_x: f64, pos_y: f64, size: f64) {
             ctx.save().expect("Could not save cairo state");
@@ -116,6 +116,16 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
             let reg = Region::create();
             window.input_shape_combine_region(Some(&reg));
             window.set_accept_focus(false);
+
+            let reg = Region::create();
+            reg.union_rectangle(& RectangleInt{
+                x: 0,
+                y: 0,
+                width:1,
+                height:1
+            }).expect("Failed to add rectangle"); 
+            // If region ends up as empty at this point then queue_draw is ignored and we never draw again!
+            window.shape_combine_region(Some(&reg));
         }
         let application = gtk::Application::new(
             Some("io.github.trigg.discern"),
@@ -127,10 +137,11 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
 
             // Customise redraw
             {
+
                 let state = state.clone();
                 window.connect_draw(move |window: &gtk::ApplicationWindow, ctx: &Context| {
-                    draw_overlay!(window, ctx, state);
-
+                    // Set XShape
+                    draw_overlay!(window,ctx, state);
                     Inhibit(false)
                 });
             }
@@ -138,15 +149,15 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
             // Set untouchable
             set_untouchable(&window);
 
-            // Set as shell component
-            gtk_layer_shell::init_for_window(&window);
-            gtk_layer_shell::set_layer(&window, gtk_layer_shell::Layer::Overlay);
-            gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Top, true);
-            gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Bottom, true);
-            gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Left, true);
-            gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Right, true);
             // Now we start!
             window.set_app_paintable(true);
+            window.set_skip_pager_hint(true);
+            window.set_skip_taskbar_hint(true);
+            window.set_keep_above(true);
+            window.set_decorated(false);
+            window.set_accept_focus(false);
+            window.maximize();
+
             window.show_all();
             let state = state.clone();
             let gui_state = gui_state.clone();
