@@ -3,18 +3,71 @@ use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use gio::prelude::*;
 use glib;
-use gtk::cairo::{RectangleInt, Antialias, Context, FillRule, FontSlant, FontWeight, Operator, Region};
+use cairo::{ImageSurface, RectangleInt, Antialias, Context, FillRule, FontSlant, FontWeight, Operator, Region};
 use gtk::prelude::*;
 use std::f64::consts::PI;
 use std::sync::Arc;
+use std::collections::hash_map::HashMap;
+use tokio::time::{ sleep, Duration };
+use bytes::Bytes;
+use std::io::Cursor;
 
 pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
     let (event_sender, event_recv) = futures::channel::mpsc::channel(0); // Pipe to send notification that state has changed
     let event_sender = Arc::new(std::sync::Mutex::new(event_sender));
     let event_recv = Arc::new(std::sync::Mutex::new(event_recv));
-    let state = Arc::new(std::sync::Mutex::new(ConnState::new())); // 'local' mutex copy, not shared with main
-    let _gui_loop = tokio::task::spawn(async move {
 
+    // 'local' mutex copy, not shared with main
+    let state = Arc::new(std::sync::Mutex::new(ConnState::new()));
+
+    let avatar_list_raw : HashMap<String, Option<Bytes>> = HashMap::new();
+    let avatar_list_raw = Arc::new(std::sync::Mutex::new(avatar_list_raw));
+
+    // Thread to check for users in current view and download any missing avatars.
+    // Poorly written but just about does the job
+    {
+        let state = state.clone();
+        let avatar_list_raw = avatar_list_raw.clone();
+        tokio::spawn(async move {
+            loop{
+                let state = state.lock().unwrap().clone();
+                for (_id, user) in state.users{
+                    if ! avatar_list_raw.lock().unwrap().contains_key(&user.avatar){
+                        avatar_list_raw.lock().unwrap().insert(user.avatar.clone(), None);
+                        println!("Requesting {}/{}", user.id, user.avatar);
+                        let url = format!("https://cdn.discordapp.com/avatars/{}/{}.png" , user.id, user.avatar);
+                        match reqwest::Client::new()
+                            .get(url)
+                            .header("Referer", "https://streamkit.discord.com/overlay/voice")
+                            .header("User-Agent", "Mozilla/5.0")
+                            .send()
+                            .await {
+                            Ok(resp) => {
+                                match resp.bytes().await{
+                                    Ok(bytes) => {
+                                        avatar_list_raw.lock().unwrap().insert(user.id, Some(bytes));
+                                    }
+                                    Err(err) => {
+                                        println!("{}", err);
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                println!("{}",err);
+                            }
+                        }
+                            
+                    }
+                }
+                sleep(Duration::from_millis(100)).await;
+            }
+        });
+    }
+
+    let _gui_loop = tokio::task::spawn(async move {
+        // avatar surfaces
+        let avatar_list : HashMap<String, Option<ImageSurface>> = HashMap::new();
+        let avatar_list = Arc::new(std::sync::Mutex::new(avatar_list));
 
         fn draw_deaf(ctx: &Context, pos_x: f64, pos_y: f64, size: f64) {
             ctx.save().expect("Could not save cairo state");
@@ -139,9 +192,11 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
             {
 
                 let state = state.clone();
+                let avatar_list = avatar_list.clone();
+                let avatar_list_raw = avatar_list_raw.clone();
                 window.connect_draw(move |window: &gtk::ApplicationWindow, ctx: &Context| {
                     // Set XShape
-                    draw_overlay!(window,ctx, state);
+                    draw_overlay!(window,ctx, avatar_list, avatar_list_raw, state);
                     Inhibit(false)
                 });
             }

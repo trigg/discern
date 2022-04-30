@@ -1,4 +1,5 @@
 use futures::lock::Mutex;
+use std::env;
 use futures_util::{SinkExt, StreamExt};
 use http::Request;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
@@ -121,7 +122,25 @@ async fn main() {
     match matches.subcommand() {
         Some(("auto", _sub_matches)) => {
             println!("Auto: Not yet implemented");
-            std::process::exit(0);
+            let wayland_env = env::var("WAYLAND_DISPLAY");
+            let x11_env = env::var("DISPLAY");
+            let gamescope_env = env::var("GAMESCOPE_WAYLAND_DISPLAY");
+            if gamescope_env.is_ok(){
+                println!("Gamescope: Not yet implemented");
+                std::process::exit(0);
+
+            }else if wayland_env.is_ok(){
+                exit_on_disconnect = false;
+                callback = Arc::new(wlroots::start(state.clone()));
+            }else if x11_env.is_ok(){
+                exit_on_disconnect = false;
+                callback = Arc::new(x11::start(state.clone()));
+            }else{
+                exit_on_disconnect = true;
+                debug_stdout = true;
+                callback = Arc::new(clispam::start(state.clone()));   
+            }
+
         }
         Some(("x11", _sub_matches)) => {
             exit_on_disconnect = false;
