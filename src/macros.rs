@@ -101,6 +101,20 @@ macro_rules! send_req_devices{
     }
 }
 
+macro_rules! send_set_channel{
+    {$writer:expr, $channel: expr} => {
+        send!($writer, json!({
+            "cmd": "SELECT_VOICE_CHANNEL",
+            "args": { 
+                "channel_id": $channel,
+                "force": true
+            },
+            "nonce": "deadbeef"
+        }));
+        
+    }
+}
+
 macro_rules! send_set_devices{
     {$writer: expr, $dev: expr, $value: expr, $nonce: expr} =>{
         send!($writer, json!({

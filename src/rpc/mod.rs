@@ -119,6 +119,9 @@ pub fn start(
             let writer = writer.clone();
             let data: Value = serde_json::from_str(&value).unwrap();
             match data["cmd"].as_str() {
+                Some("SELECT_VOICE_CHANNEL") => {
+                    std::process::exit(0);
+                }
                 Some("GET_SELECTED_VOICE_CHANNEL") => {
                     if user_args.get_room_id {
                         match data["data"]["id"].as_str() {
@@ -235,6 +238,14 @@ pub fn start(
                             send_req_devices!(writer);
                         }
                         None => {}
+                    }
+                    match user_args.set_room {
+                        Some(roomid) => {
+                            send_set_channel!(writer, roomid);
+                        }
+                        None => {
+                            
+                        }
                     }
                 }
                 Some(_) => {}
