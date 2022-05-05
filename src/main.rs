@@ -1,7 +1,7 @@
 use futures::lock::Mutex;
-use std::env;
 use futures_util::{SinkExt, StreamExt};
 use http::Request;
+use std::env;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use tungstenite::handshake::client::generate_key;
 extern crate serde_json;
@@ -131,21 +131,20 @@ async fn main() {
             let wayland_env = env::var("WAYLAND_DISPLAY");
             let x11_env = env::var("DISPLAY");
             let gamescope_env = env::var("GAMESCOPE_WAYLAND_DISPLAY");
-            if gamescope_env.is_ok(){
+            if gamescope_env.is_ok() {
                 println!("Gamescope: Not yet implemented");
                 std::process::exit(0);
-            }else if wayland_env.is_ok(){
+            } else if wayland_env.is_ok() {
                 exit_on_disconnect = false;
                 callback = Arc::new(wlroots::start(state.clone()));
-            }else if x11_env.is_ok(){
+            } else if x11_env.is_ok() {
                 exit_on_disconnect = false;
                 callback = Arc::new(x11::start(state.clone()));
-            }else{
+            } else {
                 exit_on_disconnect = true;
                 debug_stdout = true;
-                callback = Arc::new(clispam::start(state.clone()));   
+                callback = Arc::new(clispam::start(state.clone()));
             }
-
         }
         Some(("x11", _sub_matches)) => {
             exit_on_disconnect = false;
@@ -412,5 +411,83 @@ async fn update_state_from_voice_state_list(
 ) {
     for voice_state in voice_state_list.as_array().unwrap() {
         update_state_from_voice_state(state.clone(), voice_state).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_update_voice_state_list() {
+        let state = data::ConnState {
+            user_id: None,
+            voice_channel: None,
+            users: HashMap::new(),
+            voice_states: HashMap::new(),
+        };
+
+        let state = Arc::new(Mutex::new(state));
+        let json = json!([{
+            "user": {"id":"1", "username": "Test User", "avatar":""},
+            "voice_state": {"mute":false, "deaf":false, "self_mute":false, "self_deaf":false, "suppress":false}
+        },{
+            "user": {"id":"2", "username": "Second Test User", "avatar":""},
+            "voice_state": {"mute":false, "deaf":false, "self_mute":false, "self_deaf":false, "suppress":false}
+        }]);
+
+        update_state_from_voice_state_list(state.clone(), &json).await;
+        let value = state
+            .lock()
+            .await
+            .users
+            .get(&"2".to_string())
+            .unwrap()
+            .username
+            .clone();
+        assert_eq!(value, "Second Test User");
+    }
+
+    #[tokio::test]
+    async fn test_voice_state_talking() {
+        let state = data::ConnState {
+            user_id: None,
+            voice_channel: None,
+            users: HashMap::new(),
+            voice_states: HashMap::new(),
+        };
+
+        let state = Arc::new(Mutex::new(state));
+
+        let json = json!({
+            "user": {"id":"1", "username": "Test User", "avatar":""},
+            "voice_state": {"mute":false, "deaf":false, "self_mute":false, "self_deaf":false, "suppress":false}
+        });
+        // Insert new user
+        update_state_from_voice_state(state.clone(), &json).await;
+        // Set them to talking
+        set_user_talking(state.clone(), "1".to_string(), true).await;
+        // Check
+        let value = state
+            .lock()
+            .await
+            .voice_states
+            .get(&"1".to_string())
+            .unwrap()
+            .talking
+            .clone();
+        assert_eq!(value, true);
+        // Set them to not talking
+        set_user_talking(state.clone(), "1".to_string(), false).await;
+        // Check
+        let value = state
+            .lock()
+            .await
+            .voice_states
+            .get(&"1".to_string())
+            .unwrap()
+            .talking
+            .clone();
+        assert_eq!(value, false);
     }
 }
