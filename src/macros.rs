@@ -210,48 +210,55 @@ macro_rules! draw_overlay{
                             $ctx.set_source_rgba(1.0, 1.0, 1.0, 1.0);
                         }
                         $ctx.show_text(&name).expect("unable to draw text");
-                        if voice_state.deaf || voice_state.self_deaf {
-                            draw_deaf($ctx, 0.0, y, line_height);
-                        } else if voice_state.mute || voice_state.self_mute {
-                            draw_mute($ctx, 0.0, y, line_height);
-                        }
+
                         let mut avatar_list = $avatar_list.lock().unwrap();
                         let avatar_list_raw = $avatar_list_raw.lock().unwrap();
-                        match avatar_list.get(&user.id){
-                            Some(img)=>{
-                                match img{
-                                    Some(img) =>{
-                                        $ctx.save().expect("Unable to save cairo state");
-                                        $ctx.translate(0.0, y);
-                                        $ctx.scale(line_height, line_height);
-                                        $ctx.scale(1.0 / img.width() as f64, 1.0 / img.height() as f64);
-                                        $ctx.set_source_surface(img,0.0,0.0).unwrap();
-                                        $ctx.rectangle(0.0,0.0,img.width() as f64, img.height() as f64);
-                                        $ctx.fill().unwrap();
-                                        $ctx.restore().expect("Unable to restore cairo state");
+                        match user.avatar{
+                            Some(_avatar) => {
+                                match avatar_list.get(&user.id){
+                                    Some(img)=>{
+                                        match img{
+                                            Some(img) =>{
+                                                $ctx.save().expect("Unable to save cairo state");
+                                                $ctx.translate(0.0, y);
+                                                $ctx.scale(line_height, line_height);
+                                                $ctx.scale(1.0 / img.width() as f64, 1.0 / img.height() as f64);
+                                                $ctx.set_source_surface(img,0.0,0.0).unwrap();
+                                                $ctx.rectangle(0.0,0.0,img.width() as f64, img.height() as f64);
+                                                $ctx.fill().unwrap();
+                                                $ctx.restore().expect("Unable to restore cairo state");
+                                            }
+                                            None => {
+                                            // Requested but no image (yet?) Don't draw anything more
+                                            }
+                                        }
                                     }
-                                    None => {
-                                        // Requested but no image (yet?) Don't draw anything more
-                                    }
-                                }
-                            }
-                            None=>{
-                                // Not requested yet. Don't draw anything
-                                match avatar_list_raw.get(&user.id){
-                                    Some(maybe_raw) => {
-                                        match maybe_raw{
-                                            Some(raw) => {
-                                                let surface = ImageSurface::create_from_png(&mut Cursor::new(raw)).expect("Error processing user avatar");
-                                                avatar_list.insert(user.id.clone(), Some(surface));
+                                    None=>{
+                                        // Not requested yet. Don't draw anything
+                                        match avatar_list_raw.get(&user.id){
+                                            Some(maybe_raw) => {
+                                                match maybe_raw{
+                                                    Some(raw) => {
+                                                        let surface = ImageSurface::create_from_png(&mut Cursor::new(raw)).expect("Error processing user avatar");
+                                                        avatar_list.insert(user.id.clone(), Some(surface));
+                                                        $window.queue_draw(); // It'll need to redraw to get this image
+                                                    }
+                                                    None => {
+                                                    }
+                                                }
                                             }
                                             None => {
                                             }
                                         }
                                     }
-                                    None => {
-                                    }
                                 }
-                            }
+                            },
+                            None=>{}
+                        }
+                        if voice_state.deaf || voice_state.self_deaf {
+                            draw_deaf($ctx, 0.0, y, line_height);
+                        } else if voice_state.mute || voice_state.self_mute {
+                            draw_mute($ctx, 0.0, y, line_height);
                         }
                     }
                     None => {}
