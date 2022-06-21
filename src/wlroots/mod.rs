@@ -1,3 +1,4 @@
+use crate::data::calculate_hash;
 use crate::data::ConnState;
 use bytes::Bytes;
 use cairo::{
@@ -30,7 +31,9 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
 
     // Thread to check for users in current view and download any missing avatars.
     // Poorly written but just about does the job
+    let event_sender = event_sender.clone();
     {
+        let event_sender = event_sender.clone();
         let state = state.clone();
         let avatar_list_raw = avatar_list_raw.clone();
         tokio::spawn(async move {
@@ -62,6 +65,12 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
                                                 .lock()
                                                 .unwrap()
                                                 .insert(user.id, Some(bytes));
+                                            match event_sender.lock().unwrap().try_send("avatar") {
+                                                Ok(_) => {}
+                                                Err(_e) => {
+                                                    println!("Unable to send to gtk thread {}", _e);
+                                                }
+                                            }
                                         }
                                         Err(err) => {
                                             println!("{}", err);
@@ -226,15 +235,18 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
             let future = {
                 let event_recv = event_recv.clone();
                 async move {
-                    while let Some(_event) = event_recv.lock().unwrap().next().await {
-                        // TODO Maybe filter for events that actually require a redraw instead of redraw for everything?
-
-                        // TODO Maybe just write a simple hasher for ConnData and compare hashes? Could avoid queue_draw if we know state is equal
-
+                    while let Some(event) = event_recv.lock().unwrap().next().await {
                         // We've just been alerted the state may have changed, we have a futures Mutex which can't be used in drawing, so copy data out to 'local' mutex!
                         let update_state: ConnState = gui_state.lock().await.clone();
-                        state.lock().unwrap().replace_self(update_state);
-                        window.queue_draw();
+                        let last_state: ConnState = state.lock().unwrap().clone();
+                        println!("Update reason : {}", event);
+                        if calculate_hash(&update_state) != calculate_hash(&last_state)
+                            || event == "avatar"
+                        {
+                            println!("Actually yeah let's draw");
+                            state.lock().unwrap().replace_self(update_state);
+                            window.queue_draw();
+                        }
                     }
                 }
             };
@@ -248,7 +260,7 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
     let event_sender = event_sender.clone();
     // Return a function to be called every time we receive a new packet
     // In our case we try send it across the pipe into glib loop
-    move |value: String| match event_sender.lock().unwrap().try_send(value) {
+    move |_value: String| match event_sender.lock().unwrap().try_send(" ") {
         Ok(_) => {}
         Err(_e) => {
             println!("Unable to send to gtk thread {}", _e);
