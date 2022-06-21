@@ -17,7 +17,7 @@ macro_rules! send_auth{
             "cmd": "AUTHORIZE",
             "args": {
                 "client_id": $auth_code,
-                "scopes": ["rpc", "messages.read"],
+                "scopes": ["rpc", "messages.read", "rpc.notifications.read"],
                 "prompt": "none",
             },
             "nonce": "deadbeef"
@@ -116,13 +116,12 @@ macro_rules! send_set_channel{
     {$writer:expr, $channel: expr} => {
         send!($writer, json!({
             "cmd": "SELECT_VOICE_CHANNEL",
-            "args": { 
+            "args": {
                 "channel_id": $channel,
                 "force": true
             },
             "nonce": "deadbeef"
         }));
-        
     }
 }
 
@@ -146,7 +145,7 @@ macro_rules! draw_overlay{
             y: 0,
             width:1,
             height:1
-        }).expect("Failed to add rectangle"); 
+        }).expect("Failed to add rectangle");
         // Config / Static
         let edge = 6.0;
         let line_height = 32.0;

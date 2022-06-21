@@ -2,7 +2,7 @@ use std::collections::hash_map::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct DiscordUserData {
-    pub avatar: String,
+    pub avatar: Option<String>,
     pub id: String,
     pub username: String,
 }

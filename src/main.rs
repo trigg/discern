@@ -16,6 +16,7 @@ mod data;
 #[macro_use]
 mod macros;
 mod rpc;
+mod statefile;
 mod wlroots;
 mod x11;
 
@@ -82,7 +83,7 @@ async fn main() {
                     .subcommand(
                         Command::new("statefile")
                             .about("Write state into a file every time it changes.")
-                            .arg(arg!(-f --file <FILE> "The location of the file to write to. Defaults to ~/.discern-state").allow_invalid_utf8(true))
+                            .arg(arg!(-f --file <FILE> "The location of the file to write to. Defaults to ~/.discern-state"))
                     )
                     .subcommand(
                         Command::new("gamescope")
@@ -131,7 +132,15 @@ async fn main() {
             let wayland_env = env::var("WAYLAND_DISPLAY");
             let x11_env = env::var("DISPLAY");
             let gamescope_env = env::var("GAMESCOPE_WAYLAND_DISPLAY");
-            if gamescope_env.is_ok() {
+            let statefile_env = env::var("DISCERN_STATEFILE");
+            if statefile_env.is_ok() {
+                callback = Arc::new(statefile::start(
+                    statefile_env.unwrap(),
+                    writer.clone(),
+                    _sub_matches,
+                    state.clone(),
+                ));
+            } else if gamescope_env.is_ok() {
                 println!("Gamescope: Not yet implemented");
                 std::process::exit(0);
             } else if wayland_env.is_ok() {
@@ -165,10 +174,21 @@ async fn main() {
             callback = Arc::new(rpc::start(writer.clone(), _sub_matches, state.clone()));
         }
         Some(("statefile", _sub_matches)) => {
-            //exit_on_disconnect = false;
-
-            println!("StateFile: Not yet implemented");
-            std::process::exit(0);
+            exit_on_disconnect = false;
+            match _sub_matches.value_of("file") {
+                Some(statefile) => {
+                    callback = Arc::new(statefile::start(
+                        statefile.to_string(),
+                        writer.clone(),
+                        _sub_matches,
+                        state.clone(),
+                    ));
+                }
+                None => {
+                    println!("Missing -f <FILE> : state file needed");
+                    std::process::exit(0);
+                }
+            }
         }
         Some((_, _)) => {
             println!("Other: Not yet implemented");
@@ -364,7 +384,13 @@ async fn update_state_from_voice_state(state: Arc<Mutex<data::ConnState>>, voice
         .as_str()
         .unwrap()
         .to_string();
-    let avatar = voice_state["user"]["avatar"].as_str().unwrap().to_string();
+    let mut avatar: Option<String> = None;
+    match voice_state["user"]["avatar"].as_str() {
+        Some(in_avatar) => {
+            avatar = Some(in_avatar.to_string());
+        }
+        None => {}
+    }
 
     let user = data::DiscordUserData {
         avatar: avatar,
