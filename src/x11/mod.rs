@@ -249,11 +249,9 @@ pub fn start(gui_state: Arc<Mutex<ConnState>>) -> impl Fn(String) {
                         // We've just been alerted the state may have changed, we have a futures Mutex which can't be used in drawing, so copy data out to 'local' mutex!
                         let update_state: ConnState = gui_state.lock().await.clone();
                         let last_state: ConnState = state.lock().unwrap().clone();
-                        println!("Update reason : {}", event);
                         if calculate_hash(&update_state) != calculate_hash(&last_state)
                             || event == "avatar"
                         {
-                            println!("Actually yeah let's draw");
                             state.lock().unwrap().replace_self(update_state);
                             window.queue_draw();
                         }
