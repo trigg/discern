@@ -1,19 +1,37 @@
 // Send raw value over websocket
-macro_rules! send {
+#[macro_export]
+macro_rules! send_socket {
     ($writer: expr, $value: expr) => {
-        $writer
-            .lock()
-            .await
-            .send(Message::Text($value.to_string() + "\n"))
-            .await
-            .unwrap();
+        for packet in $value.iter() {
+            $writer
+                .lock()
+                .await
+                .send(Message::Text(packet.to_string() + "\n"))
+                .await
+                .unwrap();
+        }
+    };
+}
+
+// Send raw value locally to socket thread
+#[macro_export]
+macro_rules! send_mpsc {
+    ($writer: expr, $value: expr) => {
+        for packet in $value.iter() {
+            $writer
+                .lock()
+                .await
+                .try_send(packet.to_string())
+                .expect("Unable to send packet");
+        }
     };
 }
 
 // First packet to send. Explains what scopes the app will need
-macro_rules! send_auth{
-    ($writer: expr, $auth_code: expr) => {
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_auth{
+    ($auth_code: expr) => {
+        [json!({
             "cmd": "AUTHORIZE",
             "args": {
                 "client_id": $auth_code,
@@ -21,122 +39,133 @@ macro_rules! send_auth{
                 "prompt": "none",
             },
             "nonce": "deadbeef"
-        }));
+        })]
     }
 }
 
 // Second, with an access token to authenticate the app
-macro_rules! send_auth2{
-    ($writer: expr, $token: expr) => {
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_auth2{
+    ($token: expr) => {
+        [json!({
             "cmd": "AUTHENTICATE",
             "args": {
                 "access_token": $token,
             },
             "nonce": "deadbeef"
-        }));
+        })]
     }
 }
 
 // Request a list of all guilds the user is in
-macro_rules! send_req_all_guilds{
-    {$writer: expr} => {
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_req_all_guilds{
+    {} => {
+        [json!({
             "cmd": "GET_GUILDS",
             "args": {
             },
             "nonce": "deadbeef"
-        }));
+        })]
     }
 }
 
 // Request information on the channel the user is currently in
-macro_rules! send_req_selected_voice{
-    {$writer: expr} => {
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_req_selected_voice{
+    {} => {
+        [json!({
             "cmd": "GET_SELECTED_VOICE_CHANNEL",
             "args": {
             },
             "nonce": "deadbeef"
-        }));
+        })]
     }
 }
 
 // Subscribe to event callbacks
-macro_rules! send_sub{
-    {$writer: expr, $event: expr, $args: expr, $nonce: expr} =>{
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_sub{
+    {$event: expr, $args: expr, $nonce: expr} =>{
+        json!({
             "cmd": "SUBSCRIBE",
             "args": $args,
             "evt": $event,
             "nonce": $nonce
-        }));
+        })
     }
 }
 
 // Subscribe to server events
-macro_rules! send_sub_server{
-    {$writer: expr} => {
-        send_sub!($writer.clone(), "VOICE_CHANNEL_SELECT", json!({}), "VOICE_CHANNEL_SELECT");
-        send_sub!($writer.clone(), "VOICE_CONNECTION_STATUS", json!({}), "VOICE_CONNECTION_STATUS");
+#[macro_export]
+macro_rules! packet_sub_server{
+    {} => {
+        [packet_sub!("VOICE_CHANNEL_SELECT", json!({}), "VOICE_CHANNEL_SELECT"),
+        packet_sub!("VOICE_CONNECTION_STATUS", json!({}), "VOICE_CONNECTION_STATUS")]
     }
 }
 
 // Subscribe to a channel event
-macro_rules! send_sub_channel{
-    {$writer: expr, $event: expr, $channel: expr} => {
-        send_sub!($writer, $event, json!({"channel_id":$channel}), $channel);
+#[macro_export]
+macro_rules! packet_sub_channel{
+    {$event: expr, $channel: expr} => {
+        packet_sub!($event, json!({"channel_id":$channel}), $channel)
     }
 }
 
 // Subscribe to voice channel events
-macro_rules! send_sub_voice_channel{
-    {$writer: expr, $channel: expr} => {
-        send_sub_channel!($writer.clone(), "VOICE_STATE_CREATE", $channel);
-        send_sub_channel!($writer.clone(), "VOICE_STATE_UPDATE", $channel);
-        send_sub_channel!($writer.clone(), "VOICE_STATE_DELETE", $channel);
-        send_sub_channel!($writer.clone(), "SPEAKING_START", $channel);
-        send_sub_channel!($writer.clone(), "SPEAKING_STOP", $channel);
+#[macro_export]
+macro_rules! packet_sub_voice_channel{
+    {$channel: expr} => {
+        [packet_sub_channel!("VOICE_STATE_CREATE", $channel),
+        packet_sub_channel!("VOICE_STATE_UPDATE", $channel),
+        packet_sub_channel!("VOICE_STATE_DELETE", $channel),
+        packet_sub_channel!("SPEAKING_START", $channel),
+        packet_sub_channel!("SPEAKING_STOP", $channel)]
     }
 }
 
 // Request information about audio devices
-macro_rules! send_req_devices{
-    {$writer: expr} =>{
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_req_devices{
+    {} =>{
+        [json!({
             "cmd": "GET_VOICE_SETTINGS",
             "args": {},
             "nonce": "deadbeef"
-        }));
+        })]
     }
 }
 
 // Request we move the user into the channel with the given ID
-macro_rules! send_set_channel{
-    {$writer:expr, $channel: expr} => {
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_set_channel{
+    {$channel: expr} => {
+        [json!({
             "cmd": "SELECT_VOICE_CHANNEL",
             "args": {
                 "channel_id": $channel,
                 "force": true
             },
             "nonce": "deadbeef"
-        }));
+        })]
     }
 }
 
 // Request we change the users device setting (mute, deaf etc)
-macro_rules! send_set_devices{
-    {$writer: expr, $dev: expr, $value: expr, $nonce: expr} =>{
-        send!($writer, json!({
+#[macro_export]
+macro_rules! packet_set_devices{
+    {$dev: expr, $value: expr, $nonce: expr} =>{
+        [json!({
             "cmd": "SET_VOICE_SETTINGS",
             "args": {$dev:$value},
             "nonce": $nonce
-        }));
+        })]
     }
 }
 
 // Cairo helper
+#[macro_export]
 macro_rules! draw_overlay{
     {$window: expr, $ctx: expr, $avatar_list:expr, $avatar_list_raw:expr, $state: expr} => {
         let reg = Region::create();

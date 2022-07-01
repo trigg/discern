@@ -3,6 +3,30 @@ name = "discern"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+name="discern"
+path="src/main.rs"
+
+[[bin]]
+name="discern-wlr"
+path="src/wlroots-main.rs"
+
+[[bin]]
+name="discern-x11"
+path="src/x11-main.rs"
+
+[[bin]]
+name="discern-rpc"
+path="src/rpc-main.rs"
+
+[[bin]]
+name="discern-clispam"
+path="src/clispam-main.rs"
+
+[[bin]]
+name="discern-statefile"
+path="src/statefile-main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

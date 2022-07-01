@@ -72,4 +72,11 @@ impl ConnState {
             self.voice_states.insert(key.clone(), val.clone());
         }
     }
+
+    pub fn clear(&mut self) {
+        self.user_id = None;
+        self.voice_channel = None;
+        self.users.clear();
+        self.voice_states.clear();
+    }
 }

@@ -1,30 +1,79 @@
-use crate::data::ConnState;
-use futures::lock::Mutex;
-use std::sync::Arc;
-use tokio::net::TcpStream;
-use tokio::time::{sleep, Duration};
+extern crate clap;
 extern crate serde_json;
-use futures_util::stream::SplitSink;
-use futures_util::SinkExt;
+use clap::{arg, command, Command};
+use futures::lock::Mutex;
+use futures::stream::StreamExt;
 use serde_json::json;
 use serde_json::Value;
-use tokio_tungstenite::{tungstenite::protocol::Message, MaybeTlsStream, WebSocketStream};
+use std::sync::Arc;
 
-pub fn start(
-    writer: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Message>>>,
-    matches: &clap::ArgMatches,
-    _gui_state: Arc<Mutex<ConnState>>,
-) -> impl Fn(String) {
-    let writer = writer.clone();
-    let _gui_loop = tokio::task::spawn(async move {
-        loop {
-            // We're doing nothing
-            sleep(Duration::from_millis(10000)).await;
-            println!("Timed out error");
-            std::process::exit(1);
-        }
-    });
+mod core;
+mod data;
+mod macros;
 
+#[tokio::main]
+async fn main() {
+    let state = data::ConnState::new();
+    let state = Arc::new(Mutex::new(state));
+
+    // Websocket events to main thread
+    let (event_sender, event_recv) = futures::channel::mpsc::channel::<String>(0);
+    let event_sender = Arc::new(Mutex::new(event_sender));
+    let event_recv = Arc::new(Mutex::new(event_recv));
+
+    // Main thread messages to Websocket output
+    let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(0);
+    let msg_sender = Arc::new(Mutex::new(msg_sender));
+    let msg_recv = Arc::new(Mutex::new(msg_recv));
+
+    // Start a thread for connection
+    let connector_state = state.clone();
+    let connector_event_sender = event_sender.clone();
+    let connector_msg_recv = msg_recv.clone();
+    core::connector(
+        connector_state.clone(),
+        connector_event_sender.clone(),
+        connector_msg_recv.clone(),
+    )
+    .await;
+
+    // Setup Command line args
+    let matches = command!()
+        .subcommand_required(true)
+        .subcommand(
+            Command::new("channel")
+                .about("Get current channel information")
+                .subcommand(Command::new("id").about("Get Room ID. None is 0"))
+                .subcommand(Command::new("name").about("Get Room Name"))
+                .subcommand(
+                    Command::new("useridlist").about("Get List of users in room, return IDs"),
+                )
+                .subcommand(
+                    Command::new("usernamelist").about("Get List of users in room, return names"),
+                )
+                .subcommand(
+                    Command::new("move")
+                        .about("Switch to another room by ID")
+                        .arg(arg!([ID] "ID of room to move user to")),
+                ),
+        )
+        .subcommand(
+            Command::new("devices")
+                .about("Get audio device information")
+                .subcommand(
+                    Command::new("mute").about("Check mute state of user").arg(
+                        arg!(-s --set <VALUE> "Alter mute state. `true` `false` or `toggle`")
+                            .required(false),
+                    ),
+                )
+                .subcommand(
+                    Command::new("deaf").about("Check deaf state of user").arg(
+                        arg!(-s --set <VALUE> "Alter deaf state. `true` `false` or `toggle`")
+                            .required(false),
+                    ),
+                ),
+        )
+        .get_matches();
     // Types to store what the user requested action was
     #[derive(Debug, Clone)]
     enum AudioAction {
@@ -110,19 +159,11 @@ pub fn start(
             std::process::exit(0);
         }
     }
-    let writer = writer.clone();
 
-    // Return a function to be called every time we receive a new packet
-    // Due to the simplicity of passing a String over a JSON Value it needs to
-    // be decoded a 2nd time. Not great.
-    move |value| {
-        // clone all data and spawn an async task
-        let value = value.clone();
-        let writer = writer.clone();
-        let user_args = user_args.clone();
-        tokio::task::spawn(async move {
-            let writer = writer.clone();
-            let data: Value = serde_json::from_str(&value).unwrap();
+    loop {
+        while let Some(event) = event_recv.lock().await.next().await {
+            println!("{}", event);
+            let data: Value = serde_json::from_str(&event).unwrap();
             match data["cmd"].as_str() {
                 Some("SELECT_VOICE_CHANNEL") => {
                     // Successfully Selected a channel. Exit!
@@ -190,11 +231,13 @@ pub fn start(
                         Some(AudioAction::True) => {}
                         Some(AudioAction::False) => {}
                         Some(AudioAction::Toggle) => {
-                            send_set_devices!(
-                                writer,
-                                "mute",
-                                !data["data"]["mute"].as_bool().unwrap(),
-                                "deadbeef"
+                            send_mpsc!(
+                                msg_sender,
+                                packet_set_devices!(
+                                    "mute",
+                                    !data["data"]["mute"].as_bool().unwrap(),
+                                    "deadbeef"
+                                )
                             );
                         }
                         Some(AudioAction::Get) => {
@@ -207,11 +250,13 @@ pub fn start(
                         Some(AudioAction::True) => {}
                         Some(AudioAction::False) => {}
                         Some(AudioAction::Toggle) => {
-                            send_set_devices!(
-                                writer,
-                                "deaf",
-                                !data["data"]["deaf"].as_bool().unwrap(),
-                                "deadbeef"
+                            send_mpsc!(
+                                msg_sender,
+                                packet_set_devices!(
+                                    "deaf",
+                                    !data["data"]["deaf"].as_bool().unwrap(),
+                                    "deadbeef"
+                                )
                             );
                         }
                         Some(AudioAction::Get) => {
@@ -225,46 +270,44 @@ pub fn start(
                     // On connection make first call.
                     match user_args.mute {
                         Some(AudioAction::True) => {
-                            send_set_devices!(writer, "mute", true, "deadbeef");
+                            send_mpsc!(msg_sender, packet_set_devices!("mute", true, "deadbeef"));
                         }
                         Some(AudioAction::False) => {
-                            send_set_devices!(writer, "mute", false, "deadbeef");
+                            send_mpsc!(msg_sender, packet_set_devices!("mute", false, "deadbeef"));
                         }
                         Some(AudioAction::Toggle) => {
-                            send_req_devices!(writer);
+                            send_mpsc!(msg_sender, packet_req_devices!());
                         }
                         Some(AudioAction::Get) => {
-                            send_req_devices!(writer);
+                            send_mpsc!(msg_sender, packet_req_devices!());
                         }
                         None => {}
                     }
                     match user_args.deaf {
                         Some(AudioAction::True) => {
-                            send_set_devices!(writer, "deaf", true, "deadbeef");
+                            send_mpsc!(msg_sender, packet_set_devices!("deaf", true, "deadbeef"));
                         }
                         Some(AudioAction::False) => {
-                            send_set_devices!(writer, "deaf", false, "deadbeef");
+                            send_mpsc!(msg_sender, packet_set_devices!("deaf", false, "deadbeef"));
                         }
                         Some(AudioAction::Toggle) => {
-                            send_req_devices!(writer);
+                            send_mpsc!(msg_sender, packet_req_devices!());
                         }
                         Some(AudioAction::Get) => {
-                            send_req_devices!(writer);
+                            send_mpsc!(msg_sender, packet_req_devices!());
                         }
                         None => {}
                     }
                     match user_args.set_room {
-                        Some(roomid) => {
-                            send_set_channel!(writer, roomid);
+                        Some(ref roomid) => {
+                            send_mpsc!(msg_sender, packet_set_channel!(roomid.clone()));
                         }
-                        None => {
-                            
-                        }
+                        None => {}
                     }
                 }
                 Some(_) => {}
                 None => {}
             }
-        });
+        }
     }
 }
