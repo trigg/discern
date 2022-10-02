@@ -248,7 +248,7 @@ async fn main() {
             let avatar_list = avatar_list.clone();
             let avatar_list_raw = avatar_list_raw.clone();
             window.connect_draw(move |window: &gtk::ApplicationWindow, ctx: &Context| {
-                draw_overlay!(window, ctx, avatar_list, avatar_list_raw, state);
+                draw_overlay_gtk!(window, ctx, avatar_list, avatar_list_raw, state);
 
                 Inhibit(false)
             });

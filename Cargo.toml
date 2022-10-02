@@ -27,6 +27,10 @@ path="src/clispam-main.rs"
 name="discern-statefile"
 path="src/statefile-main.rs"
 
+[[bin]]
+name="discern-gamescope"
+path="src/gamescope-main.rs"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -52,5 +56,8 @@ gtk-layer-shell = "0.2.6"
 gio = "0.15.11"
 futures = "0.3"
 bytes = "*"
-cairo-rs = {version="0.15.11", features=["png"]}
+cairo-rs = {version="0.15.11", features=["png", "xcb"]}
 string-builder = "0.2.0"
+xcb = "1.1.1"
+xcb-sys = "0.2.1"
+cairo-sys-rs = "0.15.1"

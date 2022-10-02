@@ -134,17 +134,17 @@ pub async fn connector(
                 let writer = writer.clone();
                 tokio::spawn(async move {
                     while let Some(event) = recvr.clone().lock().await.next().await {
-                        println!("{}", event);
+                        //println!("{}", event);
                         send_socket!(writer, [event]);
                     }
                 });
             }
 
             read.for_each(|message| async {
-                println!("Msg");
                 if message.is_err() {
                     println!("Connection to Discord lost");
                     state.lock().await.clear();
+                    return;
                 }
                 let message = message.unwrap();
                 let writer = writer.clone();
@@ -288,9 +288,7 @@ pub async fn connector(
                         }
                         match sender.lock().await.try_send(raw_data) {
                             Ok(_) => {}
-                            Err(_e) => {
-                                println!("Unable to send event to thread {}", _e);
-                            }
+                            Err(_e) => {}
                         }
                         //(callback_fn)(data.clone(), writer.clone());
                     }

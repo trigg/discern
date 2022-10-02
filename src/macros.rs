@@ -166,7 +166,7 @@ macro_rules! packet_set_devices{
 
 // Cairo helper
 #[macro_export]
-macro_rules! draw_overlay{
+macro_rules! draw_overlay_gtk{
     {$window: expr, $ctx: expr, $avatar_list:expr, $avatar_list_raw:expr, $state: expr} => {
         let reg = Region::create();
         reg.union_rectangle(& RectangleInt{
@@ -296,5 +296,118 @@ macro_rules! draw_overlay{
             }
         }
         $window.shape_combine_region(Some(&reg));
+    }
+}
+
+// Cairo helper
+#[macro_export]
+macro_rules! draw_overlay{
+    {$ctx: expr, $avatar_list:expr, $avatar_list_raw:expr, $state: expr} => {
+        // Config / Static
+        let edge = 6.0;
+        let line_height = 32.0;
+
+        $ctx.set_antialias(Antialias::Good);
+        $ctx.set_operator(Operator::Source);
+        $ctx.set_source_rgba(1.0, 0.0, 0.0, 0.0);
+        $ctx.paint().expect("Unable to paint window");
+
+        $ctx.select_font_face("Sans", FontSlant::Normal, FontWeight::Normal);
+        $ctx.set_font_size(16.0);
+        let state = $state.lock().await.clone();
+        let mut y = 50.0;
+        $ctx.set_operator(Operator::Over);
+
+        if state.users.len() > 0 {
+            for (key, user) in state.users {
+                match state.voice_states.get(&key) {
+                    Some(voice_state) => {
+                        let mut name = user.username.clone();
+                        match &voice_state.nick {
+                            Some(nick) => {
+                                name = nick.clone();
+                            }
+                            None => {}
+                        }
+                        if voice_state.talking {
+                            $ctx.set_source_rgba(0.0, 0.4, 0.0, 0.6);
+                        } else {
+                            $ctx.set_source_rgba(0.0, 0.0, 0.0, 0.4);
+                        }
+                        let ext = $ctx.text_extents(&name).unwrap();
+                        // Draw border around text
+                        $ctx.rectangle(
+                            line_height,
+                            y + (line_height / 2.0) - (ext.height / 2.0) - edge,
+                            ext.width + edge * 2.0,
+                            ext.height + edge * 2.0,
+                        );
+                        $ctx.fill().expect("Unable to fill");
+                        $ctx.move_to(
+                            line_height + edge,
+                            y + (line_height / 2.0) + (ext.height / 2.0),
+                        );
+
+                        if voice_state.talking {
+                            $ctx.set_source_rgba(0.0, 1.0, 0.0, 1.0);
+                        } else {
+                            $ctx.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+                        }
+                        $ctx.show_text(&name).expect("unable to draw text");
+
+                        let mut avatar_list = $avatar_list.lock().unwrap();
+                        let avatar_list_raw = $avatar_list_raw.lock().unwrap();
+                        match user.avatar{
+                            Some(_avatar) => {
+                                match avatar_list.get(&user.id){
+                                    Some(img)=>{
+                                        match img{
+                                            Some(img) =>{
+                                                $ctx.save().expect("Unable to save cairo state");
+                                                $ctx.translate(0.0, y);
+                                                $ctx.scale(line_height, line_height);
+                                                $ctx.scale(1.0 / img.width() as f64, 1.0 / img.height() as f64);
+                                                $ctx.set_source_surface(img,0.0,0.0).unwrap();
+                                                $ctx.rectangle(0.0,0.0,img.width() as f64, img.height() as f64);
+                                                $ctx.fill().unwrap();
+                                                $ctx.restore().expect("Unable to restore cairo state");
+                                            }
+                                            None => {
+                                            // Requested but no image (yet?) Don't draw anything more
+                                            }
+                                        }
+                                    }
+                                    None=>{
+                                        // Not requested yet. Don't draw anything
+                                        match avatar_list_raw.get(&user.id){
+                                            Some(maybe_raw) => {
+                                                match maybe_raw{
+                                                    Some(raw) => {
+                                                        let surface = ImageSurface::create_from_png(&mut Cursor::new(raw)).expect("Error processing user avatar");
+                                                        avatar_list.insert(user.id.clone(), Some(surface));
+                                                    }
+                                                    None => {
+                                                    }
+                                                }
+                                            }
+                                            None => {
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            None=>{}
+                        }
+                        if voice_state.deaf || voice_state.self_deaf {
+                            draw_deaf($ctx, 0.0, y, line_height);
+                        } else if voice_state.mute || voice_state.self_mute {
+                            draw_mute($ctx, 0.0, y, line_height);
+                        }
+                    }
+                    None => {}
+                }
+                y += line_height;
+            }
+        }
     }
 }

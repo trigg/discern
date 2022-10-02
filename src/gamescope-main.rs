@@ -1,23 +1,20 @@
+extern crate cairo;
+extern crate cairo_sys;
 extern crate clap;
 extern crate serde_json;
-use crate::data::calculate_hash;
-use crate::data::ConnState;
+extern crate xcb;
+
+use xcb::{x, Xid};
+
 use bytes::Bytes;
-use cairo::{
-    Antialias, Context, FillRule, FontSlant, FontWeight, ImageSurface, Operator, RectangleInt,
-    Region,
-};
+use cairo::{Antialias, Context, FillRule, FontSlant, FontWeight, ImageSurface, Operator};
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
-use gio::prelude::*;
-use glib;
-use gtk::prelude::*;
-use gtk_layer_shell;
 use std::collections::hash_map::HashMap;
 use std::f64::consts::PI;
 use std::io::Cursor;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
+use tokio::time::{sleep, timeout, Duration};
 
 mod core;
 mod data;
@@ -26,7 +23,6 @@ mod macros;
 #[tokio::main]
 async fn main() {
     let state = data::ConnState::new();
-
     let state = Arc::new(Mutex::new(state));
     let gui_state = state.clone();
 
@@ -52,8 +48,6 @@ async fn main() {
     .await;
 
     // Avatar grabbing thread
-    let state = Arc::new(std::sync::Mutex::new(ConnState::new()));
-
     let avatar_list_raw: HashMap<String, Option<Bytes>> = HashMap::new();
     let avatar_list_raw = Arc::new(std::sync::Mutex::new(avatar_list_raw));
     {
@@ -61,8 +55,9 @@ async fn main() {
         let state = state.clone();
         let avatar_list_raw = avatar_list_raw.clone();
         tokio::spawn(async move {
+            println!("Starting avatar thread");
             loop {
-                let state = state.lock().unwrap().clone();
+                let state = state.lock().await.clone();
                 for (_id, user) in state.users {
                     match user.avatar {
                         Some(avatar) => {
@@ -89,6 +84,7 @@ async fn main() {
                                                 .lock()
                                                 .unwrap()
                                                 .insert(user.id, Some(bytes));
+
                                             match event_sender
                                                 .lock()
                                                 .await
@@ -96,7 +92,10 @@ async fn main() {
                                             {
                                                 Ok(_) => {}
                                                 Err(_e) => {
-                                                    println!("Unable to send to gtk thread {}", _e);
+                                                    println!(
+                                                        "Unable to send to main thread {}",
+                                                        _e
+                                                    );
                                                 }
                                             }
                                         }
@@ -117,8 +116,6 @@ async fn main() {
             }
         });
     }
-
-    // GTK/ Glib Main
 
     // avatar surfaces
     let avatar_list: HashMap<String, Option<ImageSurface>> = HashMap::new();
@@ -220,65 +217,192 @@ async fn main() {
         ctx.restore().expect("Could not restore cairo state");
     }
 
-    fn set_untouchable(window: &gtk::ApplicationWindow) {
-        let reg = Region::create();
-        window.input_shape_combine_region(Some(&reg));
-        window.set_accept_focus(false);
-    }
-    let application = gtk::Application::new(
-        Some("io.github.trigg.discern"),
-        gio::ApplicationFlags::REPLACE,
-    );
-    application.connect_activate(move |application: &gtk::Application| {
-        // Create overlay
-        let window = gtk::ApplicationWindow::new(application);
+    // XCB Main
 
-        // Customise redraw
-        {
-            let state = state.clone();
-            let avatar_list = avatar_list.clone();
-            let avatar_list_raw = avatar_list_raw.clone();
-            window.connect_draw(move |window: &gtk::ApplicationWindow, ctx: &Context| {
-                draw_overlay_gtk!(window, ctx, avatar_list, avatar_list_raw, state);
+    let (conn, screen_num) = xcb::Connection::connect(None).unwrap();
+    let setup = conn.get_setup();
+    let screen = setup.roots().nth(screen_num as usize).unwrap();
 
-                Inhibit(false)
-            });
-        }
+    // Find RGBA visual
+    let visualid = transparent_visual(screen).unwrap().visual_id();
+    // Create Colormap
+    let colormap = conn.generate_id();
+    let cookie = conn.send_request_checked(&x::CreateColormap {
+        alloc: x::ColormapAlloc::None,
+        mid: colormap,
+        window: screen.root(),
+        visual: visualid,
+    });
+    conn.check_request(cookie).expect("Error creating ColorMap");
+    conn.flush().expect("Error on flush");
 
-        // Set untouchable
-        set_untouchable(&window);
+    // Create Window
+    let win = conn.generate_id();
+    let cookie = conn.send_request_checked(&x::CreateWindow {
+        depth: 32,
+        wid: win,
+        parent: screen.root(),
+        x: 0,
+        y: 0,
+        width: 1280,
+        height: 800,
+        border_width: 1,
+        class: x::WindowClass::InputOutput,
+        visual: visualid,
+        // this list must be in same order than `Cw` enum order
+        value_list: &[
+            x::Cw::BackPixel(0),
+            x::Cw::BorderPixel(0),
+            x::Cw::EventMask(x::EventMask::EXPOSURE | x::EventMask::STRUCTURE_NOTIFY),
+            x::Cw::Colormap(colormap),
+        ],
+    });
+    conn.check_request(cookie).expect("Error creating Window");
+    conn.send_request(&x::MapWindow { window: win });
 
-        // Set as shell component
-        gtk_layer_shell::init_for_window(&window);
-        gtk_layer_shell::set_layer(&window, gtk_layer_shell::Layer::Overlay);
-        gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Top, true);
-        gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Bottom, true);
-        gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Left, true);
-        gtk_layer_shell::set_anchor(&window, gtk_layer_shell::Edge::Right, true);
-        // Now we start!
-        window.set_app_paintable(true);
-        window.show_all();
-        let state = state.clone();
-        let gui_state = gui_state.clone();
-        let future = {
-            let event_recv = event_recv.clone();
-            async move {
-                while let Some(event) = event_recv.lock().await.next().await {
-                    // We've just been alerted the state may have changed, we have a futures Mutex which can't be used in drawing, so copy data out to 'local' mutex!
-                    let update_state: ConnState = gui_state.lock().await.clone();
-                    let last_state: ConnState = state.lock().unwrap().clone();
-                    if calculate_hash(&update_state) != calculate_hash(&last_state)
-                        || event == "avatar"
-                    {
-                        state.lock().unwrap().replace_self(update_state);
-                        window.queue_draw();
+    conn.flush().expect("Error on flush");
+
+    let mut window_width = 100; // Replaced on first Configure
+    let mut window_height = 100;
+
+    // Prepare atoms
+    let atom_overlay = {
+        let cookies = (conn.send_request(&x::InternAtom {
+            only_if_exists: false,
+            name: b"GAMESCOPE_EXTERNAL_OVERLAY",
+        }),);
+        conn.wait_for_reply(cookies.0).unwrap().atom()
+    };
+
+    loop {
+        // TODO Can we use a switch on conn.poll_for_event and event_recv....try_next?
+        tokio::time::sleep(Duration::from_millis(1000 / 60)).await;
+        let event = conn.poll_for_event();
+        match event {
+            Err(err) => {
+                println!("{}", err);
+                break;
+            }
+            Ok(event) => {
+                match event {
+                    Some(event) => match event {
+                        xcb::Event::X(x::Event::Expose(_ev)) => {
+                            let cr = create_cairo_context(
+                                &conn,
+                                &screen,
+                                &win,
+                                window_width,
+                                window_height,
+                            );
+                            draw_overlay!(&cr, avatar_list, avatar_list_raw, gui_state.clone());
+                        }
+                        xcb::Event::X(x::Event::ClientMessage(_ev)) => {}
+                        xcb::Event::X(x::Event::ConfigureNotify(ev)) => {
+                            window_width = ev.width();
+                            window_height = ev.height();
+                            let cr = create_cairo_context(
+                                &conn,
+                                &screen,
+                                &win,
+                                window_width,
+                                window_height,
+                            );
+                            draw_overlay!(&cr, avatar_list, avatar_list_raw, gui_state.clone());
+                        }
+                        _ => {}
+                    },
+                    None => {
+                        // Check if we've got any new data
+                        let a = timeout(Duration::ZERO, event_recv.lock().await.next()).await;
+                        match a {
+                            Ok(Some(_t)) => {
+                                // Drain the list
+                                while let Ok(Some(_event)) =
+                                    timeout(Duration::ZERO, event_recv.lock().await.next()).await
+                                {
+                                }
+                                let cr = create_cairo_context(
+                                    &conn,
+                                    &screen,
+                                    &win,
+                                    window_width,
+                                    window_height,
+                                );
+                                draw_overlay!(&cr, avatar_list, avatar_list_raw, gui_state.clone());
+
+                                // Replace overlay status
+                                // TODO use more than chat room user list to decide
+                                let state = gui_state.lock().await.clone();
+
+                                let should_show = state.users.len() > 0;
+
+                                set_as_overlay(&conn, &win, &atom_overlay, should_show);
+                            }
+                            Ok(None) => {}
+                            Err(_) => {}
+                        }
                     }
                 }
+                conn.flush().expect("Flush error");
             }
-        };
+        }
+    }
+}
 
-        glib::MainContext::default().spawn_local(future);
+fn create_cairo_context(
+    conn: &xcb::Connection,
+    screen: &x::Screen,
+    window: &x::Window,
+    window_width: u16,
+    window_height: u16,
+) -> cairo::Context {
+    let surface;
+    unsafe {
+        let cairo_conn = cairo::XCBConnection::from_raw_none(
+            conn.get_raw_conn() as *mut cairo_sys::xcb_connection_t
+        );
+        let mut visualtype = transparent_visual(screen).unwrap();
+        let visual_ptr: *mut cairo_sys::xcb_visualtype_t =
+            &mut visualtype as *mut _ as *mut cairo_sys::xcb_visualtype_t;
+        let visual = cairo::XCBVisualType::from_raw_none(visual_ptr);
+        let cairo_screen = cairo::XCBDrawable(window.resource_id());
+        surface = cairo::XCBSurface::create(
+            &cairo_conn,
+            &cairo_screen,
+            &visual,
+            window_width as i32,
+            window_height as i32,
+        )
+        .unwrap();
+    }
+
+    cairo::Context::new(&surface).unwrap()
+}
+
+fn transparent_visual(screen: &x::Screen) -> Option<x::Visualtype> {
+    for depth in screen.allowed_depths() {
+        if depth.depth() == 32 {
+            for visual in depth.visuals() {
+                if visual.class() == xcb::x::VisualClass::TrueColor {
+                    return Some(*visual);
+                }
+            }
+        }
+    }
+    None
+}
+
+fn set_as_overlay(conn: &xcb::Connection, win: &x::Window, atom: &x::Atom, enabled: bool) {
+    let enabled: u32 = match enabled {
+        false => 0,
+        true => 1,
+    };
+    conn.send_request(&x::ChangeProperty {
+        mode: x::PropMode::Replace,
+        window: *win,
+        property: *atom,
+        r#type: x::ATOM_CARDINAL,
+        data: &[enabled as u32],
     });
-    let a: [String; 0] = Default::default(); // No args
-    application.run_with_args(&a);
+    conn.flush().expect("Error on flush");
 }
