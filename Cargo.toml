@@ -10,26 +10,32 @@ path="src/main.rs"
 [[bin]]
 name="discern-wlr"
 path="src/wlroots-main.rs"
+required-features=["wlroots"]
 
 [[bin]]
 name="discern-x11"
 path="src/x11-main.rs"
+required-features=["x11"]
 
 [[bin]]
 name="discern-rpc"
 path="src/rpc-main.rs"
+required-features=["rpc"]
 
 [[bin]]
 name="discern-clispam"
 path="src/clispam-main.rs"
+required-features=["clispam"]
 
 [[bin]]
 name="discern-statefile"
 path="src/statefile-main.rs"
+required-features=["statefile"]
 
 [[bin]]
 name="discern-gamescope"
 path="src/gamescope-main.rs"
+required-features=["gamescope"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -48,16 +54,25 @@ serde_json = "1.0"
 tui = "0.12"
 termion = "1.5"
 clap = { version = "3.2.5", features = ["cargo"] }
-glib = "0.15.10"
-glib-sys = "0.15.10"
-gdk = {version = "0.15.4", features= ["v3_22"]}
-gtk = "0.15.4"
-gtk-layer-shell = "0.2.6"
-gio = "0.15.11"
+glib = { version ="0.15.10", optional = true }
+glib-sys ={ version = "0.15.10", optional = true }
+gdk = {version = "0.15.4", features= ["v3_22"], optional = true }
+gtk = { version ="0.15.4", optional = true }
+gtk-layer-shell = { version ="0.2.6", optional = true }
+gio = { version ="0.15.11", optional = true }
 futures = "0.3"
 bytes = "*"
-cairo-rs = {version="0.15.11", features=["png", "xcb"]}
+cairo-rs = {version="0.15.11", features=["png", "xcb"], optional=true}
 string-builder = "0.2.0"
-xcb = "1.1.1"
-xcb-sys = "0.2.1"
-cairo-sys-rs = "0.15.1"
+xcb = {version = "1.1.1", optional = true }
+xcb-sys = { version ="0.2.1", optional = true }
+cairo-sys-rs = {version="0.15.1", optional=true}
+
+[features]
+wlroots=["dep:cairo-rs", "dep:gtk-layer-shell", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio"]
+x11=["dep:cairo-rs", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio"]
+clispam=[]
+statefile=[]
+gamescope=["dep:xcb", "dep:xcb-sys", "dep:cairo-rs", "dep:cairo-sys-rs"]
+rpc=[]
+default=['x11','wlroots','clispam','statefile','rpc','gamescope']
