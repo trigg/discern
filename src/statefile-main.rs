@@ -14,7 +14,7 @@ mod macros;
 
 #[tokio::main]
 async fn main() {
-    let file_path = env::var("DISCERN_STATEFILE").unwrap();
+    let file_path = env::var("DISCERN_STATEFILE").expect("No DISCERN_STATEFILE environment variable set. Quitting");
     let state = data::ConnState::new();
     let state = Arc::new(Mutex::new(state));
 
