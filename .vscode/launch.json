@@ -1,0 +1,304 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern-wlr'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern-wlr",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-wlr",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern-wlr'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern-wlr",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-wlr",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern-x11'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern-x11",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-x11",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern-x11'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern-x11",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-x11",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern-rpc'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern-rpc",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-rpc",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern-rpc'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern-rpc",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-rpc",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern-clispam'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern-clispam",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-clispam",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern-clispam'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern-clispam",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-clispam",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern-statefile'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern-statefile",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-statefile",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern-statefile'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern-statefile",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-statefile",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern-gamescope'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern-gamescope",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-gamescope",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern-gamescope'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern-gamescope",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-gamescope",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'discern-cosmic'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=discern-cosmic",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-cosmic",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in executable 'discern-cosmic'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--bin=discern-cosmic",
+                    "--package=discern"
+                ],
+                "filter": {
+                    "name": "discern-cosmic",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

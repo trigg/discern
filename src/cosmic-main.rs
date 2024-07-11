@@ -2,21 +2,20 @@ extern crate clap;
 extern crate serde_json;
 use crate::data::ConnState;
 use cairorender::DiscordAvatarRaw;
-use cosmic::cosmic_config::Config;
-use cosmic::cosmic_theme::palette::Srgba;
-use cosmic::cosmic_theme::ThemeBuilder;
-use cosmic::widget::image;
+use cosmic::iced::wayland::actions::layer_surface::SctkLayerSurfaceSettings;
+use cosmic::iced::widget::{column, image, row, text};
+use cosmic::iced::window::Id;
+use cosmic::iced::{theme::Palette, Color, Theme};
+use cosmic::iced::{Application, Element};
+use cosmic::{iced, iced::Subscription};
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use futures_channel::mpsc;
+use iced_sctk::commands::layer_surface::{Anchor, KeyboardInteractivity, Layer};
+use iced_sctk::settings::InitialSurface;
 use std::cell::RefCell;
-
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use cosmic::app;
-use cosmic::iced_core::Size;
-use cosmic::{executor, iced, iced::Subscription, ApplicationExt, Element};
 
 mod cairorender;
 mod core;
@@ -24,7 +23,6 @@ mod data;
 mod macros;
 
 pub struct App {
-    core: app::Core,
     state: ConnState,
     recv_state: RefCell<Option<mpsc::Receiver<ConnState>>>,
     recv_avatar: RefCell<Option<mpsc::Receiver<DiscordAvatarRaw>>>,
@@ -45,44 +43,16 @@ pub enum Message {
     AvatarRecv(DiscordAvatarRaw),
 }
 
-impl cosmic::Application for App {
-    /// Default async executor to use with the app.
-    type Executor = executor::Default;
+impl Application for App {
+    type Executor = iced::executor::Default;
 
-    /// Argument received [`cosmic::Application::new`].
     type Flags = UiFlags;
 
-    /// Message type specific to our [`App`].
     type Message = Message;
 
-    /// The unique application ID to supply to the window manager.
-    const APP_ID: &'static str = "io.github.trigg.discern.cosmic";
+    type Theme = Theme;
 
-    fn core(&self) -> &app::Core {
-        &self.core
-    }
-
-    fn core_mut(&mut self) -> &mut app::Core {
-        &mut self.core
-    }
-
-    /// Creates the application, and optionally emits command on initialize.
-    fn init(core: app::Core, input: Self::Flags) -> (Self, app::Command<Self::Message>) {
-        let mut app = App {
-            core,
-            state: ConnState::new(),
-            recv_state: RefCell::new(Some(input.recv_state)),
-            recv_avatar: RefCell::new(Some(input.recv_avatar)),
-            send_avatar: Arc::new(std::sync::Mutex::new(input.send_avatar)),
-            avatar_handler: Arc::new(std::sync::Mutex::new(HashMap::new())),
-        };
-
-        let command = app.update_title(); // Command::none()
-
-        (app, command)
-    }
-
-    fn update(&mut self, message: Message) -> app::Command<Message> {
+    fn update(&mut self, message: Message) -> iced::Command<Message> {
         match message {
             Message::StateRecv(msg) => {
                 self.state = msg.clone();
@@ -106,12 +76,12 @@ impl cosmic::Application for App {
                 };
             }
         }
-        app::Command::none()
+        iced::Command::none()
     }
 
     /// Creates a view after each update.
-    fn view(&self) -> Element<Self::Message> {
-        let mut container = cosmic::widget::column();
+    fn view(&self, id: Id) -> Element<Self::Message> {
+        let mut container = column([]);
 
         for (id, value) in self.state.users.iter() {
             let value = value.clone();
@@ -125,15 +95,12 @@ impl cosmic::Application for App {
                     }
                 };
 
-                let row = cosmic::widget::row::with_children(
-                    [
-                        Element::from(image::Image::<image::Handle>::new(image_handle)),
-                        Element::from(cosmic::widget::text(
-                            voice_data.nick.clone().unwrap_or(value.username.clone()),
-                        )),
-                    ]
-                    .into(),
-                );
+                let row = row([
+                    Element::from(image::Image::<image::Handle>::new(image_handle)),
+                    Element::from(text(
+                        voice_data.nick.clone().unwrap_or(value.username.clone()),
+                    )),
+                ]);
 
                 container = container.push(row);
             }
@@ -161,6 +128,27 @@ impl cosmic::Application for App {
                 },
             ),
         ])
+    }
+
+    fn new(input: Self::Flags) -> (Self, iced::Command<Self::Message>) {
+        (
+            App {
+                state: ConnState::new(),
+                recv_state: RefCell::new(Some(input.recv_state)),
+                recv_avatar: RefCell::new(Some(input.recv_avatar)),
+                send_avatar: Arc::new(std::sync::Mutex::new(input.send_avatar)),
+                avatar_handler: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            },
+            iced::Command::none(),
+        )
+    }
+
+    fn title(&self, id: Id) -> String {
+        "Discern".into()
+    }
+
+    fn theme(&self, _id: Id) -> Self::Theme {
+        discern_theme()
     }
 }
 
@@ -195,24 +183,42 @@ async fn main() {
         recv_avatar: avatar_done_recv,
         send_avatar: avatar_request_sender,
     };
-    let config = Config::new("test", 0).unwrap();
-    let mut theme = ThemeBuilder::dark();
-    let _ = theme.set_bg_color(&config, Some(Srgba::new(0, 0, 0, 0).into()));
-    let custom_theme = theme.build();
-    let settings = app::Settings::default()
-        .size(Size::new(1024., 768.))
-        .transparent(true)
-        .client_decorations(false)
-        .theme(cosmic::Theme::custom(Arc::new(custom_theme)));
-
-    let _ = app::run::<App>(settings, input);
+    let settings = iced::Settings {
+        id: None,
+        initial_surface: InitialSurface::LayerSurface(SctkLayerSurfaceSettings {
+            id: Id::MAIN,
+            keyboard_interactivity: KeyboardInteractivity::None,
+            namespace: "Discern".into(),
+            layer: Layer::Overlay,
+            size: Some((Some(200), Some(200))),
+            anchor: Anchor::RIGHT.union(Anchor::TOP),
+            exclusive_zone: 0 as i32,
+            ..Default::default()
+        }),
+        flags: input,
+        fonts: Default::default(),
+        default_font: Default::default(),
+        default_text_size: 14.into(),
+        antialiasing: true,
+        exit_on_close_request: true,
+    };
+    match App::run(settings) {
+        Ok(_) => {}
+        Err(err) => {
+            println!("Error : {:?}", err);
+        }
+    }
 }
 
-impl App
-where
-    Self: cosmic::Application,
-{
-    fn update_title(&mut self) -> app::Command<Message> {
-        self.set_window_title("Discern".to_string(), self.core.focused_window().unwrap())
-    }
+pub fn discern_theme() -> Theme {
+    Theme::custom(
+        "discern".into(),
+        Palette {
+            background: Color::from_rgba(0.0, 0.0, 0.0, 0.0),
+            text: Color::from_rgba(0.0, 0.0, 0.0, 1.0),
+            primary: Color::from_rgba(0.1, 0.5, 0.1, 1.0),
+            success: Color::from_rgba(0.0, 1.0, 0.0, 1.0),
+            danger: Color::from_rgba(1.0, 0.0, 0.0, 1.0),
+        },
+    )
 }

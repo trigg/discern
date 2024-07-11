@@ -72,12 +72,22 @@ string-builder = "0.2.0"
 xcb = {version = "1.1.1", optional = true }
 xcb-sys = { version ="0.2.1", optional = true }
 cairo-sys-rs = {version="0.15.1", optional=true}
+wayland-backend = "0.3.5"
 
 [dependencies.libcosmic]
 git = "https://github.com/pop-os/libcosmic"
 default-features = false
 optional = true
-features = ["wayland", "tokio"]
+features = ["wayland", "tokio", "applet"]
+
+
+[dependencies.iced_sctk]
+git = "https://github.com/pop-os/libcosmic"
+optional = true
+
+[dependencies.cosmic-panel-config]
+git = "https://github.com/pop-os/cosmic-panel"
+optional = true
 
 [features]
 wlroots=[ "dep:gtk-layer-shell", "dep:cairo-rs", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio", "state_hash", "avatardownloader"]
@@ -86,7 +96,7 @@ clispam=[]
 statefile=[]
 gamescope=["dep:xcb", "dep:xcb-sys", "dep:cairo-rs", "dep:cairo-sys-rs", "avatardownloader"]
 rpc=[]
-cosmic=["dep:libcosmic","avatardownloader"]
+cosmic=["dep:libcosmic","avatardownloader", "dep:iced_sctk", "dep:cosmic-panel-config"]
 default=['statefile', "wlroots", "gamescope", "clispam", "cosmic","x11","rpc"]
 
 state_hash=[]
