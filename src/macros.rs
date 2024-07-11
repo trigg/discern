@@ -167,7 +167,7 @@ macro_rules! packet_set_devices{
 // Cairo helper
 #[macro_export]
 macro_rules! draw_overlay_gtk{
-    {$window: expr, $ctx: expr, $avatar_list:expr, $avatar_list_raw:expr, $state: expr} => {
+    {$window: expr, $ctx: expr, $avatar_list:expr, $state: expr} => {
         let reg = Region::create();
         reg.union_rectangle(& RectangleInt{
             x: 0,
@@ -240,8 +240,7 @@ macro_rules! draw_overlay_gtk{
                         }
                         $ctx.show_text(&name).expect("unable to draw text");
 
-                        let mut avatar_list = $avatar_list.lock().unwrap();
-                        let avatar_list_raw = $avatar_list_raw.lock().unwrap();
+                        let avatar_list = $avatar_list.lock().unwrap();
                         match user.avatar{
                             Some(_avatar) => {
                                 match avatar_list.get(&user.id){
@@ -258,27 +257,12 @@ macro_rules! draw_overlay_gtk{
                                                 $ctx.restore().expect("Unable to restore cairo state");
                                             }
                                             None => {
+                                                println!("Avatar ready but None {}",user.id );
                                             // Requested but no image (yet?) Don't draw anything more
                                             }
                                         }
                                     }
                                     None=>{
-                                        // Not requested yet. Don't draw anything
-                                        match avatar_list_raw.get(&user.id){
-                                            Some(maybe_raw) => {
-                                                match maybe_raw{
-                                                    Some(raw) => {
-                                                        let surface = ImageSurface::create_from_png(&mut Cursor::new(raw)).expect("Error processing user avatar");
-                                                        avatar_list.insert(user.id.clone(), Some(surface));
-                                                        $window.queue_draw(); // It'll need to redraw to get this image
-                                                    }
-                                                    None => {
-                                                    }
-                                                }
-                                            }
-                                            None => {
-                                            }
-                                        }
                                     }
                                 }
                             },
@@ -302,7 +286,7 @@ macro_rules! draw_overlay_gtk{
 // Cairo helper
 #[macro_export]
 macro_rules! draw_overlay{
-    {$ctx: expr, $avatar_list:expr, $avatar_list_raw:expr, $state: expr} => {
+    {$ctx: expr, $avatar_list:expr, $state: expr} => {
         // Config / Static
         let edge = 6.0;
         let line_height = 32.0;
@@ -314,7 +298,7 @@ macro_rules! draw_overlay{
 
         $ctx.select_font_face("Sans", FontSlant::Normal, FontWeight::Normal);
         $ctx.set_font_size(16.0);
-        let state = $state.lock().await.clone();
+        let state = $state.clone();
         let mut y = 50.0;
         $ctx.set_operator(Operator::Over);
 
@@ -355,8 +339,7 @@ macro_rules! draw_overlay{
                         }
                         $ctx.show_text(&name).expect("unable to draw text");
 
-                        let mut avatar_list = $avatar_list.lock().unwrap();
-                        let avatar_list_raw = $avatar_list_raw.lock().unwrap();
+                        let avatar_list = $avatar_list.lock().unwrap();
                         match user.avatar{
                             Some(_avatar) => {
                                 match avatar_list.get(&user.id){
@@ -373,30 +356,18 @@ macro_rules! draw_overlay{
                                                 $ctx.restore().expect("Unable to restore cairo state");
                                             }
                                             None => {
+                                                println!("Requested image but no data");
                                             // Requested but no image (yet?) Don't draw anything more
                                             }
                                         }
                                     }
                                     None=>{
-                                        // Not requested yet. Don't draw anything
-                                        match avatar_list_raw.get(&user.id){
-                                            Some(maybe_raw) => {
-                                                match maybe_raw{
-                                                    Some(raw) => {
-                                                        let surface = ImageSurface::create_from_png(&mut Cursor::new(raw)).expect("Error processing user avatar");
-                                                        avatar_list.insert(user.id.clone(), Some(surface));
-                                                    }
-                                                    None => {
-                                                    }
-                                                }
-                                            }
-                                            None => {
-                                            }
-                                        }
                                     }
                                 }
                             },
-                            None=>{}
+                            None=>{
+                                println!("Error in userdata {:?}", user);
+                            }
                         }
                         if voice_state.deaf || voice_state.self_deaf {
                             draw_deaf($ctx, 0.0, y, line_height);

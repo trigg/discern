@@ -1,6 +1,5 @@
 extern crate clap;
 extern crate serde_json;
-use crate::data::ConnState;
 use futures::lock::Mutex;
 use futures_util::{SinkExt, StreamExt};
 use http::Request;
@@ -92,10 +91,10 @@ async fn update_state_from_voice_state_list(
 }
 
 pub async fn connector(
-    state: Arc<Mutex<ConnState>>,
-    sender: Arc<Mutex<futures::channel::mpsc::Sender<String>>>,
+    sender: Arc<Mutex<futures::channel::mpsc::Sender<data::ConnState>>>,
     recvr: Arc<Mutex<futures::channel::mpsc::Receiver<String>>>,
 ) {
+    let state = Arc::new(Mutex::new(data::ConnState::new()));
     let debug_stdout = true;
     tokio::spawn(async move {
         loop {
@@ -152,7 +151,7 @@ pub async fn connector(
                     tungstenite::Message::Text(raw_data) => {
                         let data: Value = serde_json::from_str(&raw_data).unwrap();
                         // Data is a raw JSON object
-                        println!("{}", raw_data);
+                        //println!("{}", raw_data);
                         match data["cmd"].as_str().unwrap() {
                             "AUTHORIZE" => {
                                 // Make HTTPS request to auth user
@@ -244,7 +243,7 @@ pub async fn connector(
                                         set_user_talking(state.clone(), id, false).await;
                                     }
                                     "VOICE_STATE_DELETE" => {
-                                        println!("{:?}", data);
+                                        //println!("{:?}", data);
                                         let id = data["data"]["user"]["id"].clone();
                                         let user_id =
                                             state.lock().await.user_id.as_ref().unwrap().clone();
@@ -253,7 +252,6 @@ pub async fn connector(
                                         }
                                     }
                                     "VOICE_STATE_CREATE" => {
-                                        let _id = data["data"]["user"]["id"].clone();
                                         if state.lock().await.voice_channel.is_none() {
                                             send_socket!(writer, packet_req_selected_voice!());
                                         }
@@ -286,7 +284,7 @@ pub async fn connector(
                                 }
                             }
                         }
-                        match sender.lock().await.try_send(raw_data) {
+                        match sender.lock().await.try_send(state.lock().await.clone()) {
                             Ok(_) => {}
                             Err(_e) => {}
                         }

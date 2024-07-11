@@ -4,32 +4,39 @@ extern crate clap;
 extern crate serde_json;
 extern crate xcb;
 
+use cairorender::DiscordAvatarRaw;
+use data::ConnState;
 use xcb::{x, Xid};
 
-use bytes::Bytes;
 use cairo::{Antialias, Context, FillRule, FontSlant, FontWeight, ImageSurface, Operator};
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
+use futures_util::SinkExt;
 use std::collections::hash_map::HashMap;
 use std::f64::consts::PI;
 use std::io::Cursor;
 use std::sync::Arc;
-use tokio::time::{sleep, timeout, Duration};
+use tokio::select;
 
+mod cairorender;
 mod core;
 mod data;
 mod macros;
 
 #[tokio::main]
 async fn main() {
-    let state = data::ConnState::new();
-    let state = Arc::new(Mutex::new(state));
-    let gui_state = state.clone();
+    // Avatar to main thread
+    let (mut avatar_request_sender, avatar_request_recv) =
+        futures::channel::mpsc::channel::<ConnState>(0);
+
+    // Mainthread to Avatar
+    let (avatar_done_sender, mut avatar_done_recv) =
+        futures::channel::mpsc::channel::<DiscordAvatarRaw>(0);
 
     // Websocket events to main thread
-    let (event_sender, event_recv) = futures::channel::mpsc::channel::<String>(0);
-    let event_sender = Arc::new(Mutex::new(event_sender));
-    let event_recv = Arc::new(Mutex::new(event_recv));
+    let (event_sender, mut event_recv) = futures::channel::mpsc::channel::<ConnState>(0);
+    let event_sender: Arc<Mutex<futures_channel::mpsc::Sender<ConnState>>> =
+        Arc::new(Mutex::new(event_sender));
 
     // Main thread messages to Websocket output
     let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(0);
@@ -37,85 +44,12 @@ async fn main() {
     let msg_recv = Arc::new(Mutex::new(msg_recv));
 
     // Start a thread for connection
-    let connector_state = state.clone();
     let connector_event_sender = event_sender.clone();
     let connector_msg_recv = msg_recv.clone();
-    core::connector(
-        connector_state.clone(),
-        connector_event_sender.clone(),
-        connector_msg_recv.clone(),
-    )
-    .await;
+    core::connector(connector_event_sender.clone(), connector_msg_recv.clone()).await;
 
-    // Avatar grabbing thread
-    let avatar_list_raw: HashMap<String, Option<Bytes>> = HashMap::new();
-    let avatar_list_raw = Arc::new(std::sync::Mutex::new(avatar_list_raw));
-    {
-        let event_sender = event_sender.clone();
-        let state = state.clone();
-        let avatar_list_raw = avatar_list_raw.clone();
-        tokio::spawn(async move {
-            println!("Starting avatar thread");
-            loop {
-                let state = state.lock().await.clone();
-                for (_id, user) in state.users {
-                    match user.avatar {
-                        Some(avatar) => {
-                            if !avatar_list_raw.lock().unwrap().contains_key(&avatar) {
-                                avatar_list_raw.lock().unwrap().insert(avatar.clone(), None);
-                                println!("Requesting {}/{}", user.id, avatar);
-                                let url = format!(
-                                    "https://cdn.discordapp.com/avatars/{}/{}.png",
-                                    user.id, avatar
-                                );
-                                match reqwest::Client::new()
-                                    .get(url)
-                                    .header(
-                                        "Referer",
-                                        "https://streamkit.discord.com/overlay/voice",
-                                    )
-                                    .header("User-Agent", "Mozilla/5.0")
-                                    .send()
-                                    .await
-                                {
-                                    Ok(resp) => match resp.bytes().await {
-                                        Ok(bytes) => {
-                                            avatar_list_raw
-                                                .lock()
-                                                .unwrap()
-                                                .insert(user.id, Some(bytes));
-
-                                            match event_sender
-                                                .lock()
-                                                .await
-                                                .try_send("avatar".to_string())
-                                            {
-                                                Ok(_) => {}
-                                                Err(_e) => {
-                                                    println!(
-                                                        "Unable to send to main thread {}",
-                                                        _e
-                                                    );
-                                                }
-                                            }
-                                        }
-                                        Err(err) => {
-                                            println!("{}", err);
-                                        }
-                                    },
-                                    Err(err) => {
-                                        println!("{}", err);
-                                    }
-                                }
-                            }
-                        }
-                        None => {}
-                    }
-                }
-                sleep(Duration::from_millis(100)).await;
-            }
-        });
-    }
+    // Start a thread for avatars
+    cairorender::avatar_downloader(avatar_done_sender, avatar_request_recv).await;
 
     // avatar surfaces
     let avatar_list: HashMap<String, Option<ImageSurface>> = HashMap::new();
@@ -273,79 +207,86 @@ async fn main() {
         }),);
         conn.wait_for_reply(cookies.0).unwrap().atom()
     };
-
+    let mut state = ConnState::new();
     loop {
-        // TODO Can we use a switch on conn.poll_for_event and event_recv....try_next?
-        tokio::time::sleep(Duration::from_millis(1000 / 60)).await;
-        let event = conn.poll_for_event();
-        match event {
-            Err(err) => {
-                println!("{}", err);
-                break;
-            }
-            Ok(event) => {
-                match event {
-                    Some(event) => match event {
-                        xcb::Event::X(x::Event::Expose(_ev)) => {
-                            let cr = create_cairo_context(
-                                &conn,
-                                &screen,
-                                &win,
-                                window_width,
-                                window_height,
-                            );
-                            draw_overlay!(&cr, avatar_list, avatar_list_raw, gui_state.clone());
-                        }
-                        xcb::Event::X(x::Event::ClientMessage(_ev)) => {}
-                        xcb::Event::X(x::Event::ConfigureNotify(ev)) => {
-                            window_width = ev.width();
-                            window_height = ev.height();
-                            let cr = create_cairo_context(
-                                &conn,
-                                &screen,
-                                &win,
-                                window_width,
-                                window_height,
-                            );
-                            draw_overlay!(&cr, avatar_list, avatar_list_raw, gui_state.clone());
-                        }
-                        _ => {}
-                    },
+        let xloop = async { conn.poll_for_event() };
+        let (xevent, threadevent, avatarevent) = select! {
+            x = xloop => ( Some(x), None, None),
+            x = event_recv.next() => (None,Some(x),None),
+            x = avatar_done_recv.next() => (None, None, Some(x)),
+        };
+        let mut sleep = 100;
+        let mut redraw = false;
+        match xevent {
+            Some(event) => match event {
+                Ok(Some(event)) => match event {
+                    xcb::Event::X(x::Event::Expose(_ev)) => {
+                        redraw = true;
+                        sleep = 0;
+                    }
+                    xcb::Event::X(x::Event::ClientMessage(_ev)) => {}
+                    xcb::Event::X(x::Event::ConfigureNotify(ev)) => {
+                        window_width = ev.width();
+                        window_height = ev.height();
+                        redraw = true;
+                        sleep = 0;
+                    }
+                    _ => {}
+                },
+                Ok(None) => {}
+                Err(_e) => {}
+            },
+            None => {}
+        }
+        match threadevent {
+            Some(event) => match event {
+                Some(new_state) => {
+                    state.replace_self(new_state.clone());
+                    let _ = avatar_request_sender.send(new_state.clone()).await;
+                    redraw = true;
+                    sleep = 0;
+                }
+                None => {}
+            },
+            None => {}
+        }
+        match avatarevent {
+            Some(Some(avatardata)) => {
+                match avatardata.raw {
+                    Some(raw) => {
+                        let surface = ImageSurface::create_from_png(&mut Cursor::new(raw))
+                            .expect("Error processing user avatar");
+                        avatar_list
+                            .lock()
+                            .unwrap()
+                            .insert(avatardata.key.clone(), Some(surface));
+                    }
                     None => {
-                        // Check if we've got any new data
-                        let a = timeout(Duration::ZERO, event_recv.lock().await.next()).await;
-                        match a {
-                            Ok(Some(_t)) => {
-                                // Drain the list
-                                while let Ok(Some(_event)) =
-                                    timeout(Duration::ZERO, event_recv.lock().await.next()).await
-                                {
-                                }
-                                let cr = create_cairo_context(
-                                    &conn,
-                                    &screen,
-                                    &win,
-                                    window_width,
-                                    window_height,
-                                );
-                                draw_overlay!(&cr, avatar_list, avatar_list_raw, gui_state.clone());
-
-                                // Replace overlay status
-                                // TODO use more than chat room user list to decide
-                                let state = gui_state.lock().await.clone();
-
-                                let should_show = state.users.len() > 0;
-
-                                set_as_overlay(&conn, &win, &atom_overlay, should_show);
-                            }
-                            Ok(None) => {}
-                            Err(_) => {}
-                        }
+                        println!("Raw is None for user id {}", avatardata.key);
+                        avatar_list
+                            .lock()
+                            .unwrap()
+                            .insert(avatardata.key.clone(), None);
                     }
                 }
-                conn.flush().expect("Flush error");
+
+                redraw = true;
+                sleep = 0;
             }
+            Some(None) => {}
+            None => {}
         }
+        if redraw {
+            let cr = create_cairo_context(&conn, &screen, &win, window_width, window_height);
+
+            let should_show = state.users.len() > 0;
+            set_as_overlay(&conn, &win, &atom_overlay, should_show);
+            draw_overlay!(&cr, avatar_list, state);
+        }
+        if sleep > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(sleep)).await;
+        }
+        conn.flush().expect("Flush error");
     }
 }
 

@@ -4,7 +4,6 @@ use clap::{arg, command, Command};
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use serde_json::json;
-use serde_json::Value;
 use std::sync::Arc;
 
 mod core;
@@ -13,11 +12,8 @@ mod macros;
 
 #[tokio::main]
 async fn main() {
-    let state = data::ConnState::new();
-    let state = Arc::new(Mutex::new(state));
-
     // Websocket events to main thread
-    let (event_sender, event_recv) = futures::channel::mpsc::channel::<String>(0);
+    let (event_sender, event_recv) = futures::channel::mpsc::channel::<data::ConnState>(0);
     let event_sender = Arc::new(Mutex::new(event_sender));
     let event_recv = Arc::new(Mutex::new(event_recv));
 
@@ -27,15 +23,9 @@ async fn main() {
     let msg_recv = Arc::new(Mutex::new(msg_recv));
 
     // Start a thread for connection
-    let connector_state = state.clone();
     let connector_event_sender = event_sender.clone();
     let connector_msg_recv = msg_recv.clone();
-    core::connector(
-        connector_state.clone(),
-        connector_event_sender.clone(),
-        connector_msg_recv.clone(),
-    )
-    .await;
+    core::connector(connector_event_sender.clone(), connector_msg_recv.clone()).await;
 
     // Setup Command line args
     let matches = command!()
@@ -162,8 +152,11 @@ async fn main() {
 
     loop {
         while let Some(event) = event_recv.lock().await.next().await {
-            println!("{}", event);
-            let data: Value = serde_json::from_str(&event).unwrap();
+            println!("{:?}", event);
+            //let data: Value = serde_json::from_str(&event).unwrap();
+            let data = json!([]); // TODO
+                                  // We broke RPC as there is no direct JSON at this point.
+                                  // Need to consider raw-string options again
             match data["cmd"].as_str() {
                 Some("SELECT_VOICE_CHANNEL") => {
                     // Successfully Selected a channel. Exit!

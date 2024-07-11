@@ -2,13 +2,14 @@ extern crate clap;
 extern crate serde_json;
 use crate::data::calculate_hash;
 use crate::data::ConnState;
-use bytes::Bytes;
 use cairo::{
     Antialias, Context, FillRule, FontSlant, FontWeight, ImageSurface, Operator, RectangleInt,
     Region,
 };
+use cairorender::DiscordAvatarRaw;
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
+use futures_util::SinkExt;
 use gio::prelude::*;
 use glib;
 use gtk::prelude::*;
@@ -17,21 +18,27 @@ use std::collections::hash_map::HashMap;
 use std::f64::consts::PI;
 use std::io::Cursor;
 use std::sync::Arc;
-use tokio::time::{sleep, Duration};
 
+mod cairorender;
 mod core;
 mod data;
 mod macros;
 
 #[tokio::main]
 async fn main() {
-    let state = data::ConnState::new();
+    // Avatar to main thread
+    let (avatar_request_sender, avatar_request_recv) =
+        futures::channel::mpsc::channel::<ConnState>(0);
+    let avatar_request_sender = Arc::new(Mutex::new(avatar_request_sender));
 
-    let state = Arc::new(Mutex::new(state));
-    let gui_state = state.clone();
+    // Mainthread to Avatar
+    let (avatar_done_sender, avatar_done_recv) =
+        futures::channel::mpsc::channel::<DiscordAvatarRaw>(0);
+
+    let avatar_done_recv = Arc::new(Mutex::new(avatar_done_recv));
 
     // Websocket events to main thread
-    let (event_sender, event_recv) = futures::channel::mpsc::channel::<String>(0);
+    let (event_sender, event_recv) = futures::channel::mpsc::channel::<ConnState>(0);
     let event_sender = Arc::new(Mutex::new(event_sender));
     let event_recv = Arc::new(Mutex::new(event_recv));
 
@@ -41,82 +48,15 @@ async fn main() {
     let msg_recv = Arc::new(Mutex::new(msg_recv));
 
     // Start a thread for connection
-    let connector_state = state.clone();
     let connector_event_sender = event_sender.clone();
     let connector_msg_recv = msg_recv.clone();
-    core::connector(
-        connector_state.clone(),
-        connector_event_sender.clone(),
-        connector_msg_recv.clone(),
-    )
-    .await;
+    core::connector(connector_event_sender.clone(), connector_msg_recv.clone()).await;
+
+    // Start a thread for avatars
+    cairorender::avatar_downloader(avatar_done_sender, avatar_request_recv).await;
 
     // Avatar grabbing thread
     let state = Arc::new(std::sync::Mutex::new(ConnState::new()));
-
-    let avatar_list_raw: HashMap<String, Option<Bytes>> = HashMap::new();
-    let avatar_list_raw = Arc::new(std::sync::Mutex::new(avatar_list_raw));
-    {
-        let event_sender = event_sender.clone();
-        let state = state.clone();
-        let avatar_list_raw = avatar_list_raw.clone();
-        tokio::spawn(async move {
-            loop {
-                let state = state.lock().unwrap().clone();
-                for (_id, user) in state.users {
-                    match user.avatar {
-                        Some(avatar) => {
-                            if !avatar_list_raw.lock().unwrap().contains_key(&avatar) {
-                                avatar_list_raw.lock().unwrap().insert(avatar.clone(), None);
-                                println!("Requesting {}/{}", user.id, avatar);
-                                let url = format!(
-                                    "https://cdn.discordapp.com/avatars/{}/{}.png",
-                                    user.id, avatar
-                                );
-                                match reqwest::Client::new()
-                                    .get(url)
-                                    .header(
-                                        "Referer",
-                                        "https://streamkit.discord.com/overlay/voice",
-                                    )
-                                    .header("User-Agent", "Mozilla/5.0")
-                                    .send()
-                                    .await
-                                {
-                                    Ok(resp) => match resp.bytes().await {
-                                        Ok(bytes) => {
-                                            avatar_list_raw
-                                                .lock()
-                                                .unwrap()
-                                                .insert(user.id, Some(bytes));
-                                            match event_sender
-                                                .lock()
-                                                .await
-                                                .try_send("avatar".to_string())
-                                            {
-                                                Ok(_) => {}
-                                                Err(_e) => {
-                                                    println!("Unable to send to gtk thread {}", _e);
-                                                }
-                                            }
-                                        }
-                                        Err(err) => {
-                                            println!("{}", err);
-                                        }
-                                    },
-                                    Err(err) => {
-                                        println!("{}", err);
-                                    }
-                                }
-                            }
-                        }
-                        None => {}
-                    }
-                }
-                sleep(Duration::from_millis(100)).await;
-            }
-        });
-    }
 
     // GTK/ Glib Main
 
@@ -237,9 +177,8 @@ async fn main() {
         {
             let state = state.clone();
             let avatar_list = avatar_list.clone();
-            let avatar_list_raw = avatar_list_raw.clone();
             window.connect_draw(move |window: &gtk::ApplicationWindow, ctx: &Context| {
-                draw_overlay_gtk!(window, ctx, avatar_list, avatar_list_raw, state);
+                draw_overlay_gtk!(window, ctx, avatar_list, state);
 
                 Inhibit(false)
             });
@@ -259,25 +198,51 @@ async fn main() {
         window.set_app_paintable(true);
         window.show_all();
         let state = state.clone();
-        let gui_state = gui_state.clone();
-        let future = {
+
+        // State watcher
+        glib::MainContext::default().spawn_local({
+            let window = window.clone();
             let event_recv = event_recv.clone();
+            let avatar_request_sender = avatar_request_sender.clone();
             async move {
                 while let Some(event) = event_recv.lock().await.next().await {
                     // We've just been alerted the state may have changed, we have a futures Mutex which can't be used in drawing, so copy data out to 'local' mutex!
-                    let update_state: ConnState = gui_state.lock().await.clone();
+                    let update_state: ConnState = event.clone();
                     let last_state: ConnState = state.lock().unwrap().clone();
-                    if calculate_hash(&update_state) != calculate_hash(&last_state)
-                        || event == "avatar"
-                    {
+                    let _ = avatar_request_sender.lock().await.send(event.clone()).await;
+                    if calculate_hash(&update_state) != calculate_hash(&last_state) {
                         state.lock().unwrap().replace_self(update_state);
                         window.queue_draw();
                     }
                 }
             }
-        };
+        });
 
-        glib::MainContext::default().spawn_local(future);
+        // Avatar watcher
+        glib::MainContext::default().spawn_local({
+            let window = window.clone();
+            let avatar_done_recv = avatar_done_recv.clone();
+            let avatar_list = avatar_list.clone();
+            async move {
+                while let Some(event) = avatar_done_recv.lock().await.next().await {
+                    match event.raw {
+                        Some(raw) => {
+                            let surface = ImageSurface::create_from_png(&mut Cursor::new(raw))
+                                .expect("Error processing user avatar");
+                            avatar_list
+                                .lock()
+                                .unwrap()
+                                .insert(event.key.clone(), Some(surface));
+                        }
+                        None => {
+                            println!("Raw is None for user id {}", event.key);
+                            avatar_list.lock().unwrap().insert(event.key.clone(), None);
+                        }
+                    }
+                    window.queue_draw();
+                }
+            }
+        });
     });
     let a: [String; 0] = Default::default(); // No args
     application.run_with_args(&a);

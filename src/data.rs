@@ -1,3 +1,4 @@
+#[cfg(feature = "state_hash")]
 use std::collections::hash_map::DefaultHasher;
 use std::collections::hash_map::HashMap;
 use std::hash::{Hash, Hasher};
@@ -28,6 +29,7 @@ pub struct ConnState {
     pub voice_states: HashMap<String, VoiceStateData>,
 }
 
+#[cfg(feature = "state_hash")]
 pub fn calculate_hash<T: Hash>(t: &T) -> u64 {
     let mut s = DefaultHasher::new();
     t.hash(&mut s);

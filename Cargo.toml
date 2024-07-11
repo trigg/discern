@@ -37,6 +37,11 @@ name="discern-gamescope"
 path="src/gamescope-main.rs"
 required-features=["gamescope"]
 
+[[bin]]
+name="discern-cosmic"
+path="src/cosmic-main.rs"
+required-features=["cosmic"]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -53,12 +58,12 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tui = "0.12"
 termion = "1.5"
-clap = { version = "3.2.5", features = ["cargo"] }
+clap = { version = "^3.2.5", features = ["cargo"] }
 glib = { version ="0.15.10", optional = true }
 glib-sys ={ version = "0.15.10", optional = true }
 gdk = {version = "0.15.4", features= ["v3_22"], optional = true }
 gtk = { version ="0.15.4", optional = true }
-gtk-layer-shell = { version ="0.2.6", optional = true }
+gtk-layer-shell = { version ="*", optional = true }
 gio = { version ="0.15.11", optional = true }
 futures = "0.3"
 bytes = "*"
@@ -68,11 +73,21 @@ xcb = {version = "1.1.1", optional = true }
 xcb-sys = { version ="0.2.1", optional = true }
 cairo-sys-rs = {version="0.15.1", optional=true}
 
+[dependencies.libcosmic]
+git = "https://github.com/pop-os/libcosmic"
+default-features = false
+optional = true
+features = ["wayland", "tokio"]
+
 [features]
-wlroots=["dep:cairo-rs", "dep:gtk-layer-shell", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio"]
-x11=["dep:cairo-rs", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio"]
+wlroots=[ "dep:gtk-layer-shell", "dep:cairo-rs", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio", "state_hash", "avatardownloader"]
+x11=[ "dep:glib", "dep:gtk", "dep:gdk", "dep:gio","dep:cairo-rs", "state_hash", "avatardownloader"]
 clispam=[]
 statefile=[]
-gamescope=["dep:xcb", "dep:xcb-sys", "dep:cairo-rs", "dep:cairo-sys-rs"]
+gamescope=["dep:xcb", "dep:xcb-sys", "dep:cairo-rs", "dep:cairo-sys-rs", "avatardownloader"]
 rpc=[]
-default=['x11','wlroots','clispam','statefile','rpc','gamescope']
+cosmic=["dep:libcosmic","avatardownloader"]
+default=['statefile', "wlroots", "gamescope", "clispam", "cosmic","x11","rpc"]
+
+state_hash=[]
+avatardownloader=[]
