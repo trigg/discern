@@ -13,12 +13,12 @@ mod macros;
 #[tokio::main]
 async fn main() {
     // Websocket events to main thread
-    let (event_sender, event_recv) = futures::channel::mpsc::channel::<data::ConnState>(0);
+    let (event_sender, event_recv) = futures::channel::mpsc::channel::<data::ConnState>(10);
     let event_sender = Arc::new(Mutex::new(event_sender));
     let event_recv = Arc::new(Mutex::new(event_recv));
 
     // Main thread messages to Websocket output
-    let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(0);
+    let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(10);
     let msg_sender = Arc::new(Mutex::new(msg_sender));
     let msg_recv = Arc::new(Mutex::new(msg_recv));
 

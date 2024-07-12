@@ -145,6 +145,8 @@ pub async fn connector(
                     state.lock().await.clear();
                     return;
                 }
+                let copy_state = state.lock().await.clone();
+                let before_hash = data::calculate_hash(&copy_state);
                 let message = message.unwrap();
                 let writer = writer.clone();
                 match message {
@@ -268,6 +270,10 @@ pub async fn connector(
                                     }
                                     "VOICE_CONNECTION_STATUS" => {
                                         if debug_stdout {
+                                            // TODO Potentially make this part of the conn state
+                                            // But be aware that allowing this to change the state will
+                                            // Cause the overlay to render every couple of seconds for no
+                                            // effect
                                             println!("{}: {}", data["evt"], data["data"]["state"]);
                                         }
                                     }
@@ -284,11 +290,13 @@ pub async fn connector(
                                 }
                             }
                         }
-                        match sender.lock().await.try_send(state.lock().await.clone()) {
-                            Ok(_) => {}
-                            Err(_e) => {}
+                        let copy_state = state.lock().await.clone();
+                        if before_hash != data::calculate_hash(&copy_state) {
+                            match sender.lock().await.try_send(copy_state) {
+                                Ok(_) => {}
+                                Err(_e) => {}
+                            }
                         }
-                        //(callback_fn)(data.clone(), writer.clone());
                     }
                     tungstenite::Message::Binary(_raw_data) => {}
                     tungstenite::Message::Ping(_raw_data) => {}

@@ -69,7 +69,7 @@ futures = "0.3"
 bytes = "*"
 cairo-rs = {version="0.15.11", features=["png", "xcb"], optional=true}
 string-builder = "0.2.0"
-xcb = {version = "1.1.1", optional = true }
+xcb = {version = "1.1.1", optional = true, features=["randr"] }
 xcb-sys = { version ="0.2.1", optional = true }
 cairo-sys-rs = {version="0.15.1", optional=true}
 wayland-backend = "0.3.5"
@@ -90,8 +90,8 @@ git = "https://github.com/pop-os/cosmic-panel"
 optional = true
 
 [features]
-wlroots=[ "dep:gtk-layer-shell", "dep:cairo-rs", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio", "state_hash", "avatardownloader"]
-x11=[ "dep:glib", "dep:gtk", "dep:gdk", "dep:gio","dep:cairo-rs", "state_hash", "avatardownloader"]
+wlroots=[ "dep:gtk-layer-shell", "dep:cairo-rs", "dep:glib", "dep:gtk", "dep:gdk", "dep:gio", "avatardownloader"]
+x11=[ "dep:glib", "dep:gtk", "dep:gdk", "dep:gio","dep:cairo-rs", "avatardownloader"]
 clispam=[]
 statefile=[]
 gamescope=["dep:xcb", "dep:xcb-sys", "dep:cairo-rs", "dep:cairo-sys-rs", "avatardownloader"]
@@ -99,5 +99,4 @@ rpc=[]
 cosmic=["dep:libcosmic","avatardownloader", "dep:iced_sctk", "dep:cosmic-panel-config"]
 default=['statefile', "wlroots", "gamescope", "clispam", "cosmic","x11","rpc"]
 
-state_hash=[]
 avatardownloader=[]

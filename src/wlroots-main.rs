@@ -28,22 +28,22 @@ mod macros;
 async fn main() {
     // Avatar to main thread
     let (avatar_request_sender, avatar_request_recv) =
-        futures::channel::mpsc::channel::<ConnState>(0);
+        futures::channel::mpsc::channel::<ConnState>(10);
     let avatar_request_sender = Arc::new(Mutex::new(avatar_request_sender));
 
     // Mainthread to Avatar
     let (avatar_done_sender, avatar_done_recv) =
-        futures::channel::mpsc::channel::<DiscordAvatarRaw>(0);
+        futures::channel::mpsc::channel::<DiscordAvatarRaw>(10);
 
     let avatar_done_recv = Arc::new(Mutex::new(avatar_done_recv));
 
     // Websocket events to main thread
-    let (event_sender, event_recv) = futures::channel::mpsc::channel::<ConnState>(0);
+    let (event_sender, event_recv) = futures::channel::mpsc::channel::<ConnState>(10);
     let event_sender = Arc::new(Mutex::new(event_sender));
     let event_recv = Arc::new(Mutex::new(event_recv));
 
     // Main thread messages to Websocket output
-    let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(0);
+    let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(10);
     let _msg_sender = Arc::new(Mutex::new(msg_sender));
     let msg_recv = Arc::new(Mutex::new(msg_recv));
 

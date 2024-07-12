@@ -19,9 +19,7 @@ pub async fn avatar_downloader(
         let mut already_done: HashMap<String, Option<Bytes>> = HashMap::new();
 
         while let Some(state) = recvr.next().await {
-            println!("Avatar State : {:?}", state);
             for (_key, value) in state.users.into_iter() {
-                println!("Avatar Check : {:?}", value);
                 if value.avatar.is_some() {
                     let avatar_key: String = format!("{}/{}", value.id, value.avatar.unwrap());
                     if !already_done.contains_key(&avatar_key) {
@@ -70,6 +68,6 @@ pub async fn avatar_downloader(
                 }
             }
         }
-        println!("AVATAR THREAD ENDED");
+        println!("Ended avatar thread");
     });
 }

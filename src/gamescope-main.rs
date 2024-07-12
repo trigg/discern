@@ -4,11 +4,9 @@ extern crate clap;
 extern crate serde_json;
 extern crate xcb;
 
+use cairo::{Antialias, Context, FillRule, FontSlant, FontWeight, ImageSurface, Operator};
 use cairorender::DiscordAvatarRaw;
 use data::ConnState;
-use xcb::{x, Xid};
-
-use cairo::{Antialias, Context, FillRule, FontSlant, FontWeight, ImageSurface, Operator};
 use futures::lock::Mutex;
 use futures::stream::StreamExt;
 use futures_util::SinkExt;
@@ -17,6 +15,8 @@ use std::f64::consts::PI;
 use std::io::Cursor;
 use std::sync::Arc;
 use tokio::select;
+use xcb::randr::Event::ScreenChangeNotify;
+use xcb::{x, Xid};
 
 mod cairorender;
 mod core;
@@ -27,19 +27,19 @@ mod macros;
 async fn main() {
     // Avatar to main thread
     let (mut avatar_request_sender, avatar_request_recv) =
-        futures::channel::mpsc::channel::<ConnState>(0);
+        futures::channel::mpsc::channel::<ConnState>(10);
 
     // Mainthread to Avatar
     let (avatar_done_sender, mut avatar_done_recv) =
-        futures::channel::mpsc::channel::<DiscordAvatarRaw>(0);
+        futures::channel::mpsc::channel::<DiscordAvatarRaw>(10);
 
     // Websocket events to main thread
-    let (event_sender, mut event_recv) = futures::channel::mpsc::channel::<ConnState>(0);
+    let (event_sender, mut event_recv) = futures::channel::mpsc::channel::<ConnState>(10);
     let event_sender: Arc<Mutex<futures_channel::mpsc::Sender<ConnState>>> =
         Arc::new(Mutex::new(event_sender));
 
     // Main thread messages to Websocket output
-    let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(0);
+    let (msg_sender, msg_recv) = futures::channel::mpsc::channel::<String>(10);
     let _msg_sender = Arc::new(Mutex::new(msg_sender));
     let msg_recv = Arc::new(Mutex::new(msg_recv));
 
@@ -153,10 +153,14 @@ async fn main() {
 
     // XCB Main
 
-    let (conn, screen_num) = xcb::Connection::connect(None).unwrap();
+    let (conn, screen_num) =
+        xcb::Connection::connect_with_extensions(None, &[xcb::Extension::RandR], &[]).unwrap();
     let setup = conn.get_setup();
     let screen = setup.roots().nth(screen_num as usize).unwrap();
 
+    let randr_data = xcb::randr::get_extension_data(&conn).expect("No RANDR");
+
+    println!("{:?}", randr_data);
     // Find RGBA visual
     let visualid = transparent_visual(screen).unwrap().visual_id();
     // Create Colormap
@@ -169,9 +173,10 @@ async fn main() {
     });
     conn.check_request(cookie).expect("Error creating ColorMap");
     conn.flush().expect("Error on flush");
+    let win = conn.generate_id();
+    conn.flush().expect("Error on flush");
 
     // Create Window
-    let win = conn.generate_id();
     let cookie = conn.send_request_checked(&x::CreateWindow {
         depth: 32,
         wid: win,
@@ -179,7 +184,7 @@ async fn main() {
         x: 0,
         y: 0,
         width: 1280,
-        height: 800,
+        height: 720,
         border_width: 1,
         class: x::WindowClass::InputOutput,
         visual: visualid,
@@ -191,13 +196,59 @@ async fn main() {
             x::Cw::Colormap(colormap),
         ],
     });
+    conn.flush().expect("Error on flush");
     conn.check_request(cookie).expect("Error creating Window");
-    conn.send_request(&x::MapWindow { window: win });
-
     conn.flush().expect("Error on flush");
 
     let mut window_width = 100; // Replaced on first Configure
     let mut window_height = 100;
+
+    // Request XRandR
+    let randr_cookie = conn.send_request(&xcb::randr::GetScreenResources { window: win });
+    let randr_reply = conn
+        .wait_for_reply(randr_cookie)
+        .expect("Unable to get displays");
+
+    for &crtc in randr_reply.crtcs() {
+        let crtc_cookie = conn.send_request(&xcb::randr::GetCrtcInfo {
+            crtc,
+            config_timestamp: Default::default(),
+        });
+        match conn.wait_for_reply(crtc_cookie) {
+            Ok(display) => {
+                if window_width < display.width() || window_height < display.height() {
+                    window_height = display.height();
+                    window_width = display.width();
+                }
+            }
+            Err(_) => {}
+        };
+    }
+
+    // Request to be told of output changes
+    let _callback_cookie = conn.send_request(&xcb::randr::SelectInput {
+        window: win,
+        enable: xcb::randr::NotifyMask::SCREEN_CHANGE,
+    });
+    conn.flush().expect("Error on flush");
+
+    println!(
+        "Starting window size : {} x {}",
+        window_width, window_height
+    );
+
+    conn.send_request(&x::ConfigureWindow {
+        window: win,
+        value_list: &[
+            x::ConfigWindow::Width(window_width as u32),
+            x::ConfigWindow::Height(window_height as u32),
+        ],
+    });
+
+    // Show window
+    conn.send_request(&x::MapWindow { window: win });
+
+    conn.flush().expect("Error on flush");
 
     // Prepare atoms
     let atom_overlay = {
@@ -228,13 +279,28 @@ async fn main() {
                     xcb::Event::X(x::Event::ConfigureNotify(ev)) => {
                         window_width = ev.width();
                         window_height = ev.height();
+                        println!("Resized to {} x {}", window_width, window_height);
                         redraw = true;
                         sleep = 0;
+                    }
+                    xcb::Event::RandR(ScreenChangeNotify(ev)) => {
+                        println!("Screen change : {} {}", ev.width(), ev.height());
+                        if ev.width() > 1 && ev.height() > 1 {
+                            conn.send_request(&x::ConfigureWindow {
+                                window: win,
+                                value_list: &[
+                                    x::ConfigWindow::Width(ev.width() as u32),
+                                    x::ConfigWindow::Height(ev.height() as u32),
+                                ],
+                            });
+                        }
                     }
                     _ => {}
                 },
                 Ok(None) => {}
-                Err(_e) => {}
+                Err(e) => {
+                    println!("XCB Error : {:?}", e)
+                }
             },
             None => {}
         }
@@ -242,7 +308,12 @@ async fn main() {
             Some(event) => match event {
                 Some(new_state) => {
                     state.replace_self(new_state.clone());
-                    let _ = avatar_request_sender.send(new_state.clone()).await;
+                    match avatar_request_sender.send(new_state.clone()).await {
+                        Ok(_) => {}
+                        Err(e) => {
+                            println!("Could not send state to avatar thread : {:?}", e)
+                        }
+                    }
                     redraw = true;
                     sleep = 0;
                 }
